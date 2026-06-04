@@ -107,9 +107,10 @@ create table if not exists content_platforms (
 create index if not exists content_platforms_content_idx on content_platforms (content_id);
 create index if not exists content_platforms_platform_region_idx on content_platforms (platform_id, region);
 -- Partial index for active availability lookups (our most common query)
+-- Index for active availability lookups (filter available_until in query, not here —
+-- now() is not IMMUTABLE so it cannot be used in a partial index predicate)
 create index if not exists content_platforms_active_idx
-  on content_platforms (platform_id, region)
-  where (available_until is null or available_until > now());
+  on content_platforms (platform_id, region, available_until);
 
 -- ─── User Profiles ────────────────────────────────────────────────────────────
 -- Extends Supabase auth.users — id mirrors auth.users.id
