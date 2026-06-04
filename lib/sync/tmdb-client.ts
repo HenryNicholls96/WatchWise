@@ -4,17 +4,44 @@
 // To extend: add new list sources by calling fetchList() with additional endpoints.
 // To upgrade auth: switch from api_key param to Bearer token (TMDB_API_READ_TOKEN).
 
-import pThrottle from 'p-throttle'
+import axios from 'axios'
 import type { TMDbCandidate, EnrichedContent, AvailableCandidate, ContentType } from '@/lib/types/sync'
 
 const BASE_URL = 'https://api.themoviedb.org/3'
 const IMAGE_BASE_W500 = 'https://image.tmdb.org/t/p/w500'
 const IMAGE_BASE_W1280 = 'https://image.tmdb.org/t/p/w1280'
 
-// TMDb allows 40 requests per 10 seconds on API key auth
-const throttledFetch = pThrottle({ limit: 40, interval: 10_000 })(
-  (url: string) => fetch(url)
-)
+// TMDb allows 40 requests per 10 seconds — one request every 250ms keeps us under the limit.
+// Using axios instead of native fetch: axios uses Node's built-in https module which is
+// more stable on Windows than the undici-based native fetch in Node 18+.
+let _lastTMDbRequest = 0
+const TMDB_MIN_INTERVAL_MS = 250
+const TMDB_MAX_RETRIES = 3
+
+const tmdbAxios = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15_000,
+})
+
+async function throttledGet<T>(url: string): Promise<T> {
+  const now = Date.now()
+  const wait = TMDB_MIN_INTERVAL_MS - (now - _lastTMDbRequest)
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait))
+  _lastTMDbRequest = Date.now()
+
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= TMDB_MAX_RETRIES; attempt++) {
+    try {
+      const { data } = await tmdbAxios.get<T>(url)
+      return data
+    } catch (err) {
+      lastErr = err
+      const delay = 1000 * (attempt + 1)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+  throw lastErr
+}
 
 // ─── Internal TMDb Response Types ────────────────────────────────────────────
 
@@ -102,15 +129,7 @@ export function createTMDbClient(apiKey: string) {
 
   async function get<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
     const url = buildUrl(path, params)
-    const response = await throttledFetch(url)
-
-    if (!response.ok) {
-      // TMDb returns 429 when rate limited — p-throttle should prevent this
-      // but we throw a clear error if it happens anyway
-      throw new Error(`TMDb API error ${response.status} for ${path}: ${await response.text()}`)
-    }
-
-    return response.json() as Promise<T>
+    return throttledGet<T>(url)
   }
 
   function extractReleaseYear(item: TMDbListItem): number | null {

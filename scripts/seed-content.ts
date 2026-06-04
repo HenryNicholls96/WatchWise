@@ -15,6 +15,12 @@
 //   - Edit tag_mappings rows in Supabase to improve tagging (no code change needed)
 //   - Change MIN_VOTE_COUNT to include more niche or recent titles
 
+// Force IPv4 DNS resolution — fixes ECONNRESET on Windows where Node.js
+// prefers IPv6 but the remote host drops those connections.
+import { setDefaultResultOrder } from 'node:dns'
+setDefaultResultOrder('ipv4first')
+
+import axios from 'axios'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 // Supabase client typed loosely — we haven't generated schema types yet.
@@ -97,24 +103,39 @@ async function setup(): Promise<{ supabase: AnySupabaseClient; syncJobId: string
   }
   logOk('Supabase connection: OK')
 
-  // Verify TMDb key
-  const tmdbTestRes = await fetch(
-    `https://api.themoviedb.org/3/configuration?api_key=${process.env.TMDB_API_KEY!}`
-  )
-  if (!tmdbTestRes.ok) {
-    logErr(`TMDb API key invalid (HTTP ${tmdbTestRes.status})`)
+  // Verify TMDb key using axios (avoids undici/fetch SSL issues on Windows)
+  try {
+    const res = await axios.get(
+      `https://api.themoviedb.org/3/configuration?api_key=${process.env.TMDB_API_KEY!}`,
+      { timeout: 15_000 }
+    )
+    if (res.status !== 200) {
+      logErr(`TMDb API key invalid (HTTP ${res.status})`)
+      process.exit(1)
+    }
+  } catch (err) {
+    logErr(`TMDb API unreachable: ${err instanceof Error ? err.message : String(err)}`)
+    logErr('Check your internet connection and that TMDB_API_KEY is correct')
     process.exit(1)
   }
   logOk('TMDb API: OK')
 
   // Verify Streaming API key
-  const streamTestRes = await fetch(
-    `${process.env.STREAMING_API_BASE_URL!}/shows/movie/603?country=us`,
-    { headers: { 'x-api-key': process.env.STREAMING_API_KEY! } }
-  )
-  // 404 is acceptable here (Matrix may or may not be available) — 401 is not
-  if (streamTestRes.status === 401 || streamTestRes.status === 403) {
-    logErr(`Streaming API key invalid (HTTP ${streamTestRes.status})`)
+  try {
+    const res = await axios.get(
+      `${process.env.STREAMING_API_BASE_URL!}/v4/shows/movie/603?country=us`,
+      {
+        headers: { 'x-api-key': process.env.STREAMING_API_KEY! },
+        timeout: 15_000,
+        validateStatus: () => true,
+      }
+    )
+    if (res.status === 401 || res.status === 403) {
+      logErr(`Streaming API key invalid (HTTP ${res.status})`)
+      process.exit(1)
+    }
+  } catch (err) {
+    logErr(`Streaming API unreachable: ${err instanceof Error ? err.message : String(err)}`)
     process.exit(1)
   }
   logOk('Streaming API: OK')
@@ -233,6 +254,8 @@ async function checkAvailability(
     available.push(...result.available)
     apiErrors += result.apiErrors
     checked += chunk.length
+    // NOTE: The streaming API has daily rate limits on free keys.
+    // Re-run this script on separate days to accumulate more titles.
   }
 
   clearInterval(progressInterval)

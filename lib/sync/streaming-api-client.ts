@@ -7,6 +7,7 @@
 //
 // If endpoint paths change (e.g. API version bump), update BASE_PATH only.
 
+import axios from 'axios'
 import pLimit from 'p-limit'
 import type { AvailableCandidate, PlatformAvailability, TMDbCandidate, StreamingType } from '@/lib/types/sync'
 
@@ -14,33 +15,30 @@ import type { AvailableCandidate, PlatformAvailability, TMDbCandidate, Streaming
 export const TARGET_PLATFORMS = ['netflix', 'prime', 'disney'] as const
 export type TargetPlatform = typeof TARGET_PLATFORMS[number]
 
-// Maximum concurrent requests to the streaming API
+// Concurrency for streaming availability checks.
+// Free API key has rate limits — run seed script on separate days to accumulate more titles.
 const CONCURRENCY = 5
 
-// ─── Internal API Response Types ─────────────────────────────────────────────
+// ─── Internal API Response Types (v4 format) ─────────────────────────────────
+// v4 returns the show data at the top level (no `result` wrapper).
+// streamingOptions is a flat array per country — each item has service.id for platform.
 
-type StreamingOption = {
-  streamingType: string
+type StreamingOptionV4 = {
+  service: { id: string }
+  type: string                  // "subscription" | "rent" | "buy" | "addon" | "free"
   link: string
-  quality?: string
-  availableSince?: number   // Unix timestamp (seconds)
-  leaving?: number          // Unix timestamp (seconds)
+  expiresSoon?: boolean
+  availableSince?: number       // Unix timestamp (seconds)
+  price?: { amount: string; currency: string }
 }
 
-type StreamingInfoByPlatform = Record<string, StreamingOption[]>
-type StreamingInfoByCountry = Record<string, StreamingInfoByPlatform>
-
-type ShowResult = {
+type ShowResponseV4 = {
   itemType: string
   showType: string
   id: string
   tmdbId?: string
   title: string
-  streamingInfo: StreamingInfoByCountry
-}
-
-type ShowResponse = {
-  result: ShowResult
+  streamingOptions?: Record<string, StreamingOptionV4[]>  // keyed by country code
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,35 +49,14 @@ function unixToDate(ts: number | undefined): Date | null {
 }
 
 /**
- * Exponential backoff retry. Retries only on 429 (rate limit) or 503 (transient).
- * All other errors (404 = not found, 401 = bad key) are not retried.
+ * Axios instance for the Streaming API.
+ * Uses Node's built-in https module (more reliable than undici/fetch on Windows).
+ * validateStatus: null means axios won't throw on non-2xx — we handle status ourselves.
  */
-async function fetchWithRetry(
-  url: string,
-  headers: HeadersInit,
-  maxRetries = 3
-): Promise<Response> {
-  let lastError: Error | null = null
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(url, { headers })
-
-    if (response.ok) return response
-    if (response.status === 404) return response  // Not found — not an error worth retrying
-
-    if (response.status === 429 || response.status === 503) {
-      lastError = new Error(`HTTP ${response.status}`)
-      const delayMs = Math.min(1000 * 2 ** attempt, 16_000)
-      await new Promise(resolve => setTimeout(resolve, delayMs))
-      continue
-    }
-
-    // Other errors (401, 500, etc.) — throw immediately
-    throw new Error(`Streaming API error ${response.status}: ${await response.text()}`)
-  }
-
-  throw lastError ?? new Error('Streaming API request failed after retries')
-}
+const streamingAxios = axios.create({
+  timeout: 15_000,
+  validateStatus: () => true, // never throw on HTTP error codes — we check status ourselves
+})
 
 // ─── Client Factory ───────────────────────────────────────────────────────────
 
@@ -100,43 +77,50 @@ export function createStreamingApiClient(apiKey: string, baseUrl: string, countr
   async function checkOne(candidate: TMDbCandidate): Promise<AvailableCandidate | null> {
     return limit(async () => {
       const type = candidate.type === 'movie' ? 'movie' : 'series'
-      const url = `${baseUrl}/shows/${type}/${candidate.tmdbId}?country=${country}`
+      // v4 endpoint: /v4/shows/{type}/{tmdbId}?country={country}
+      const url = `${baseUrl}/v4/shows/${type}/${candidate.tmdbId}?country=${country}`
 
-      let response: Response
-      try {
-        response = await fetchWithRetry(url, headers)
-      } catch (err) {
-        // Network error or repeated 429 — treat as API error (caller handles)
-        throw err
+      let response: Awaited<ReturnType<typeof streamingAxios.get<ShowResponseV4>>>
+
+      let lastErr: unknown
+      for (let attempt = 0; attempt <= 3; attempt++) {
+        try {
+          response = await streamingAxios.get<ShowResponseV4>(url, { headers })
+          break
+        } catch (err) {
+          lastErr = err
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+        }
       }
+      if (!response!) throw lastErr
 
       if (response.status === 404) return null
+      if (response.status === 429 || response.status === 503) throw new Error(`HTTP ${response.status}`)
+      if (response.status === 401 || response.status === 403) throw new Error(`Streaming API auth failed (${response.status})`)
 
-      const body = await response.json() as ShowResponse
-      const countryInfo = body.result?.streamingInfo?.[country]
+      // v4: streamingOptions[country] is a flat array of options with service.id
+      const countryOptions = response.data?.streamingOptions?.[country]
 
-      if (!countryInfo) return null
+      if (!countryOptions || countryOptions.length === 0) return null
 
       const platforms: PlatformAvailability[] = []
+      const seenPlatforms = new Set<string>()
 
-      for (const slug of TARGET_PLATFORMS) {
-        const options = countryInfo[slug]
-        if (!options || options.length === 0) continue
+      for (const option of countryOptions) {
+        const slug = option.service.id
+        if (!TARGET_PLATFORMS.includes(slug as TargetPlatform)) continue
+        if (seenPlatforms.has(slug)) continue  // keep first eligible option per platform
 
-        // In MVP, we care about subscription and free content only.
-        // Rent/buy requires a separate transaction outside the user's subscription.
-        const eligibleOption = options.find(
-          o => o.streamingType === 'subscription' || o.streamingType === 'free'
-        )
+        // In MVP: subscription and free only — rent/buy requires a separate transaction
+        if (option.type !== 'subscription' && option.type !== 'free') continue
 
-        if (!eligibleOption) continue
-
+        seenPlatforms.add(slug)
         platforms.push({
           platformSlug: slug,
-          deepLink: eligibleOption.link,
-          streamingType: eligibleOption.streamingType as StreamingType,
-          availableFrom: unixToDate(eligibleOption.availableSince),
-          availableUntil: unixToDate(eligibleOption.leaving),
+          deepLink: option.link,
+          streamingType: option.type as StreamingType,
+          availableFrom: unixToDate(option.availableSince),
+          availableUntil: null,  // v4 uses expiresSoon boolean, not a specific date
         })
       }
 
