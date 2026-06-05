@@ -12,7 +12,8 @@
         "type-check": "tsc --noEmit",
         "seed": "npx tsx --env-file=.env.local scripts/seed-content.ts",
         "embed": "npx tsx --env-file=.env.local scripts/embed.ts",
-        "validate:tags": "npx tsx --env-file=.env.local scripts/validate-tag-impact.ts"
+        "validate:tags": "npx tsx --env-file=.env.local scripts/validate-tag-impact.ts",
+        "test:retrieval": "npx tsx --env-file=.env.local scripts/test-retrieval.ts"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.100.1",
