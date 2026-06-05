@@ -20,8 +20,9 @@ import { createClient } from '@supabase/supabase-js'
 
 type TagType = 'mood' | 'theme'
 
-// ── EDIT THIS to validate a proposed batch ───────────────────────────────────
-const CANDIDATE_MAPPINGS: { keyword: string; type: TagType; tag: string }[] = [
+// Default batch (used when no CLI args are supplied). Edit freely, or pass
+// candidates on the command line — see parseCliMappings() below.
+const DEFAULT_CANDIDATE_MAPPINGS: { keyword: string; type: TagType; tag: string }[] = [
   { keyword: 'superhero', type: 'theme', tag: 'superhero' },
   { keyword: 'superhero team', type: 'theme', tag: 'superhero' },
   { keyword: 'marvel cinematic universe (mcu)', type: 'theme', tag: 'superhero' },
@@ -34,6 +35,29 @@ const CANDIDATE_MAPPINGS: { keyword: string; type: TagType; tag: string }[] = [
   { keyword: 'broadway adaptation', type: 'theme', tag: 'musical' },
   { keyword: 'musical theatre', type: 'theme', tag: 'musical' },
 ]
+
+/**
+ * Parse CLI candidate mappings. Each arg is "keyword=type:tag", e.g.
+ *   npm run validate:tags -- "zombie=theme:supernatural" "zombie apocalypse=theme:survival"
+ * Falls back to DEFAULT_CANDIDATE_MAPPINGS when no args are given.
+ */
+function parseCliMappings(): { keyword: string; type: TagType; tag: string }[] {
+  const args = process.argv.slice(2)
+  if (args.length === 0) return DEFAULT_CANDIDATE_MAPPINGS
+
+  const parsed: { keyword: string; type: TagType; tag: string }[] = []
+  for (const arg of args) {
+    const m = arg.match(/^(.+)=(mood|theme):(.+)$/)
+    if (!m) {
+      console.error(`✗ Invalid mapping arg: "${arg}". Expected format: "keyword=type:tag" (type = mood|theme)`)
+      process.exit(1)
+    }
+    parsed.push({ keyword: m[1].toLowerCase().trim(), type: m[2] as TagType, tag: m[3].trim() })
+  }
+  return parsed
+}
+
+const CANDIDATE_MAPPINGS = parseCliMappings()
 
 // Keywords to evaluate for false-positive / recall risk. The script reports which
 // titles match ONLY via these keywords (i.e. would be lost if the keyword is dropped).

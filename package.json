@@ -10,7 +10,9 @@
         "test": "vitest",
         "test:ui": "vitest --ui",
         "type-check": "tsc --noEmit",
-        "seed": "npx tsx --env-file=.env.local scripts/seed-content.ts"
+        "seed": "npx tsx --env-file=.env.local scripts/seed-content.ts",
+        "embed": "npx tsx --env-file=.env.local scripts/embed.ts",
+        "validate:tags": "npx tsx --env-file=.env.local scripts/validate-tag-impact.ts"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.100.1",

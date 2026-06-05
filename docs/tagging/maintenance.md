@@ -132,11 +132,15 @@ drifting ahead of our mappings.
 
 ## Dry-Run Before Applying (required)
 
-`scripts/validate-tag-impact.ts` is the gate. Edit its `CANDIDATE_MAPPINGS` array to your proposed
-batch and run:
+`scripts/validate-tag-impact.ts` is the gate. Run it via the npm script. Pass candidate
+mappings on the command line as `keyword=type:tag` (no args = the default batch baked into the file):
 
 ```bash
-npx tsx --env-file=.env.local scripts/validate-tag-impact.ts
+# Validate an ad-hoc batch without editing any file:
+npm run validate:tags -- "zombie=theme:supernatural" "zombie apocalypse=theme:survival"
+
+# Or run the default batch defined in the script:
+npm run validate:tags
 ```
 
 Read the output before applying anything:
@@ -148,6 +152,42 @@ Read the output before applying anything:
 - **Keyword hit counts** — any `DEAD (0 hits)` keyword is forward-coverage only; justify or drop it.
 - **Recall-risk** — for any keyword under consideration for removal, list it in `WATCH_KEYWORDS`
   to see how many titles match *only* via that keyword.
+
+---
+
+## Running the Embed Step After Tag Changes
+
+Tags only affect recommendations once they reach the **embedding** — vector search runs on
+`content.embedding`, not on the tag arrays. After any change that alters `embedding_input`
+(a re-seed, a tag-mapping change), you must re-embed the affected titles:
+
+```bash
+npm run embed
+```
+
+This is the second half of the loop and is **not optional**. It is idempotent and self-targeting:
+
+- It re-embeds a title only when `embedding IS NULL` **or** `md5(embedding_input) != embedded_input_hash`.
+- Titles whose input did not change are skipped — no wasted Voyage calls.
+- Per-title failures are isolated, logged, and surfaced in the end-of-run summary; a non-zero exit
+  code signals a partial run.
+
+Typical output:
+```
+Found 53 title(s) needing embedding
+Progress: 53/53 embedded
+─── Summary ───
+  Candidates found : 53
+  Embedded         : 53
+  Failed           : 0
+```
+
+**Cost:** voyage-3-lite is ~$0.00002 per 1K tokens. Each title's input is ~120 tokens, so a
+53-title re-embed is ≈ 6.4K tokens ≈ **$0.0001** — effectively free. A full 230-title re-embed is
+still well under a cent.
+
+If `npm run embed` reports `skipped (no embedding_input)`, run `npm run seed` first — those titles
+have no input string to embed yet.
 
 ---
 
