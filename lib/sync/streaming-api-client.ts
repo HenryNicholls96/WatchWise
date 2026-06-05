@@ -76,9 +76,12 @@ export function createStreamingApiClient(apiKey: string, baseUrl: string, countr
    */
   async function checkOne(candidate: TMDbCandidate): Promise<AvailableCandidate | null> {
     return limit(async () => {
-      const type = candidate.type === 'movie' ? 'movie' : 'series'
-      // v4 endpoint: /v4/shows/{type}/{tmdbId}?country={country}
-      const url = `${baseUrl}/v4/shows/${type}/${candidate.tmdbId}?country=${country}`
+      // The motn API uses TMDb's URL convention — 'movie' and 'tv' (NOT 'series').
+      // Our internal type is 'movie' | 'series', so map 'series' → 'tv' for the path.
+      // Getting this wrong makes every series 404 and get silently dropped as "unavailable".
+      const apiType = candidate.type === 'movie' ? 'movie' : 'tv'
+      // v4 endpoint: /v4/shows/{movie|tv}/{tmdbId}?country={country}
+      const url = `${baseUrl}/v4/shows/${apiType}/${candidate.tmdbId}?country=${country}`
 
       let response: Awaited<ReturnType<typeof streamingAxios.get<ShowResponseV4>>>
 
