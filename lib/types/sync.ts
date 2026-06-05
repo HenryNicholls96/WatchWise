@@ -84,12 +84,18 @@ export type SkippedTitle = {
   details?: string
 }
 
+/** Movie vs series counts — used to make catalog composition visible at each phase. */
+export type ByType = { movie: number; series: number }
+
 export type SyncJobMetadata = {
+  /** Seed profile used for this run: 'broad' (default) or 'targeted'. */
+  seed_mode?: string
   phase_results: {
     fetch_candidates?: {
       raw_fetched: number
       after_dedup: number
       after_vote_filter: number
+      by_type: ByType            // candidates entering availability check, split by type
       duration_ms: number
     }
     availability_check?: {
@@ -97,6 +103,8 @@ export type SyncJobMetadata = {
       available: number
       not_available: number
       api_errors: number
+      checked_by_type: ByType    // how many of each type were checked
+      available_by_type: ByType  // how many of each type passed — the key composition signal
       duration_ms: number
     }
     enrichment?: {

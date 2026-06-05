@@ -173,6 +173,29 @@ export function createTMDbClient(apiKey: string) {
 
   return {
     /**
+     * Flexible TMDb Discover query — the workhorse for targeted seeding.
+     * Accepts arbitrary discover params so callers can filter by genre, watch provider,
+     * language, etc. without new methods per use case.
+     *
+     * Useful params (see https://developer.themoviedb.org/reference/discover-movie):
+     *   with_genres, without_genres   — comma-separated genre IDs (e.g. '18,80')
+     *   with_watch_providers          — provider IDs, '|'-separated (Netflix=8, Prime=9, Disney=337)
+     *   watch_region                  — required with watch_providers (e.g. 'US')
+     *   with_original_language        — e.g. 'en'
+     *   sort_by, vote_count.gte       — quality controls
+     *
+     * @param mediaType - 'movie' (→ /discover/movie) or 'series' (→ /discover/tv)
+     */
+    async discover(
+      mediaType: ContentType,
+      pages: number,
+      params: Record<string, string | number>
+    ): Promise<TMDbCandidate[]> {
+      const path = mediaType === 'movie' ? '/discover/movie' : '/discover/tv'
+      return fetchList(path, mediaType, pages, params)
+    },
+
+    /**
      * Fetches popular movies (pages 1–n).
      * Source: /movie/popular
      */

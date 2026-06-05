@@ -52,10 +52,52 @@ const BATCH_SIZE = 50          // Supabase upsert batch size
 const LIST_PAGES = 12          // Pages from popular/top_rated lists (20 results each)
 const DISCOVER_PAGES = 8       // Pages from discover endpoint per genre
 
-// TMDb genre IDs — add IDs here to pull more genre-specific content.
-// Find IDs at: https://api.themoviedb.org/3/genre/movie/list?api_key=YOUR_KEY
+// Seed profile. 'broad' = original behavior; 'targeted' = TV + adult genres on Netflix/Prime.
+// Set via env: SEED_MODE=targeted npm run seed
+const SEED_MODE = (process.env.SEED_MODE ?? 'broad').toLowerCase()
+
+// TMDb genre IDs — find IDs at https://api.themoviedb.org/3/genre/movie/list?api_key=YOUR_KEY
 const DISCOVER_MOVIE_GENRES = [35, 878, 27, 53, 10751] // Comedy, Sci-Fi, Horror, Thriller, Family
 const DISCOVER_TV_GENRES    = [35, 10765, 10751, 80]    // Comedy, Sci-Fi & Fantasy, Family, Crime
+
+// ── Targeted-mode config (SEED_MODE=targeted) ────────────────────────────────
+// Goal: correct the movie-only, animation-heavy catalog by favoring live-action
+// SERIES and adult genres (drama/crime/thriller/mystery) that are on Netflix/Prime.
+//
+// Technique: TMDb Discover with `with_watch_providers` + `watch_region=US`. This
+// returns only titles TMDb knows are on those providers, which (a) sharply raises the
+// streaming-availability hit-rate and (b) biases away from the Disney+/animation cluster.
+// `without_genres` excludes Animation(16) + Family(10751) to stop re-adding the bias.
+
+const TMDB_PROVIDERS = { netflix: 8, prime: 9, disney: 337 } as const
+const NETFLIX_PRIME = `${TMDB_PROVIDERS.netflix}|${TMDB_PROVIDERS.prime}` // '8|9'
+const EXCLUDE_GENRES = '16,10751' // Animation, Family
+
+// Adult-leaning genres. TV and movie share these IDs.
+const TARGETED_TV_GENRES    = [18, 80, 9648, 10765] // Drama, Crime, Mystery, Sci-Fi & Fantasy
+const TARGETED_MOVIE_GENRES = [18, 80, 53, 9648]    // Drama, Crime, Thriller, Mystery
+const TARGETED_TV_PAGES    = 8
+const TARGETED_MOVIE_PAGES = 4 // fewer movie pages — we already have plenty of movies
+
+function targetedDiscoverParams(genreId: number): Record<string, string | number> {
+  return {
+    with_genres: genreId,
+    without_genres: EXCLUDE_GENRES,
+    with_watch_providers: NETFLIX_PRIME,
+    watch_region: 'US',
+    with_original_language: 'en',
+    sort_by: 'vote_average.desc',
+    'vote_count.gte': MIN_VOTE_COUNT,
+  }
+}
+
+/** Counts candidates by content type — the core observability primitive. */
+function countByType(candidates: { type: 'movie' | 'series' }[]): { movie: number; series: number } {
+  return candidates.reduce(
+    (acc, c) => { acc[c.type]++; return acc },
+    { movie: 0, series: 0 }
+  )
+}
 
 // ─── Environment Validation ───────────────────────────────────────────────────
 
@@ -179,22 +221,33 @@ async function fetchCandidates(tmdb: ReturnType<typeof createTMDbClient>): Promi
   rawFetched: number
 }> {
   const start = Date.now()
-  log('\n[Phase 1] Fetching TMDb candidates...')
+  log(`\n[Phase 1] Fetching TMDb candidates... (mode: ${SEED_MODE})`)
 
   const allRaw: TMDbCandidate[] = []
 
-  // Core lists
-  allRaw.push(...await tmdb.getPopularMovies(LIST_PAGES))
-  allRaw.push(...await tmdb.getTopRatedMovies(LIST_PAGES))
-  allRaw.push(...await tmdb.getPopularTV(LIST_PAGES))
-  allRaw.push(...await tmdb.getTopRatedTV(LIST_PAGES))
-
-  // Discover by genre — adds diversity beyond popularity/rating lists
-  for (const genreId of DISCOVER_MOVIE_GENRES) {
-    allRaw.push(...await tmdb.discoverMoviesByGenre(genreId, DISCOVER_PAGES))
-  }
-  for (const genreId of DISCOVER_TV_GENRES) {
-    allRaw.push(...await tmdb.discoverTVByGenre(genreId, DISCOVER_PAGES))
+  if (SEED_MODE === 'targeted') {
+    // TV-first, adult genres, Netflix/Prime only, animation/family excluded.
+    for (const genreId of TARGETED_TV_GENRES) {
+      allRaw.push(...await tmdb.discover('series', TARGETED_TV_PAGES, targetedDiscoverParams(genreId)))
+    }
+    for (const genreId of TARGETED_MOVIE_GENRES) {
+      allRaw.push(...await tmdb.discover('movie', TARGETED_MOVIE_PAGES, targetedDiscoverParams(genreId)))
+    }
+    // Prestige TV from the curated lists too — these are the "I loved Succession" titles.
+    allRaw.push(...await tmdb.getTopRatedTV(LIST_PAGES))
+    allRaw.push(...await tmdb.getPopularTV(LIST_PAGES))
+  } else {
+    // Broad profile (original behavior).
+    allRaw.push(...await tmdb.getPopularMovies(LIST_PAGES))
+    allRaw.push(...await tmdb.getTopRatedMovies(LIST_PAGES))
+    allRaw.push(...await tmdb.getPopularTV(LIST_PAGES))
+    allRaw.push(...await tmdb.getTopRatedTV(LIST_PAGES))
+    for (const genreId of DISCOVER_MOVIE_GENRES) {
+      allRaw.push(...await tmdb.discoverMoviesByGenre(genreId, DISCOVER_PAGES))
+    }
+    for (const genreId of DISCOVER_TV_GENRES) {
+      allRaw.push(...await tmdb.discoverTVByGenre(genreId, DISCOVER_PAGES))
+    }
   }
 
   const rawFetched = allRaw.length
@@ -211,12 +264,14 @@ async function fetchCandidates(tmdb: ReturnType<typeof createTMDbClient>): Promi
 
   // Apply minimum vote filter
   const candidates = unique.filter(c => c.voteCount >= MIN_VOTE_COUNT)
+  const byType = countByType(candidates)
 
   logOk(
     `${rawFetched.toLocaleString()} fetched → ` +
     `${unique.length.toLocaleString()} unique → ` +
     `${candidates.length.toLocaleString()} after vote filter (min: ${MIN_VOTE_COUNT})`
   )
+  logInfo(`By type → movies: ${byType.movie}, series: ${byType.series}`)
   log(`  Duration: ${((Date.now() - start) / 1000).toFixed(1)}s`)
 
   return { candidates, rawFetched }
@@ -231,6 +286,8 @@ async function checkAvailability(
   available: AvailableCandidate[]
   notAvailable: number
   apiErrors: number
+  checkedByType: { movie: number; series: number }
+  availableByType: { movie: number; series: number }
 }> {
   const start = Date.now()
   log('\n[Phase 2] Checking streaming availability...')
@@ -262,15 +319,21 @@ async function checkAvailability(
   process.stdout.write('\r')
 
   const notAvailable = candidates.length - available.length - apiErrors
+  const checkedByType = countByType(candidates)
+  const availableByType = countByType(available)
 
   logOk(
     `${available.length.toLocaleString()} / ${candidates.length.toLocaleString()} ` +
     `confirmed on target platforms`
   )
+  logInfo(
+    `Available by type → movies: ${availableByType.movie}/${checkedByType.movie}, ` +
+    `series: ${availableByType.series}/${checkedByType.series}`
+  )
   if (apiErrors > 0) logWarn(`${apiErrors} titles skipped due to API errors`)
   log(`  Duration: ${((Date.now() - start) / 1000).toFixed(1)}s`)
 
-  return { available, notAvailable, apiErrors }
+  return { available, notAvailable, apiErrors, checkedByType, availableByType }
 }
 
 // ─── Phase 3: TMDb Enrichment ─────────────────────────────────────────────────
@@ -546,6 +609,7 @@ async function main() {
   )
 
   const metadata: SyncJobMetadata = {
+    seed_mode: SEED_MODE,
     phase_results: {},
     skipped_summary: {},
     unmapped_keywords: [],
@@ -559,17 +623,21 @@ async function main() {
       raw_fetched: rawFetched,
       after_dedup: candidates.length,
       after_vote_filter: candidates.length,
+      by_type: countByType(candidates),
       duration_ms: Date.now() - p1Start,
     }
 
     // Phase 2
     const p2Start = Date.now()
-    const { available, notAvailable, apiErrors: availApiErrors } = await checkAvailability(candidates, streamingClient)
+    const { available, notAvailable, apiErrors: availApiErrors, checkedByType, availableByType } =
+      await checkAvailability(candidates, streamingClient)
     metadata.phase_results.availability_check = {
       checked: candidates.length,
       available: available.length,
       not_available: notAvailable,
       api_errors: availApiErrors,
+      checked_by_type: checkedByType,
+      available_by_type: availableByType,
       duration_ms: Date.now() - p2Start,
     }
     metadata.skipped_summary.not_available = notAvailable
