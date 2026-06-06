@@ -16,6 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { type Candidate, parseContentRow } from '@/lib/types/content'
 import { type Logger, noopLogger } from '@/lib/types/logger'
+import { type CircuitBreaker, voyageBreaker } from '@/lib/utils/circuit-breaker'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -66,12 +67,26 @@ type VoyageLike = {
 const EMBED_MAX_RETRIES = 3
 
 /**
- * Voyage-backed EmbeddingClient with bounded retry/backoff on transient failures.
+ * Voyage-backed EmbeddingClient with bounded retry/backoff on transient failures AND a circuit breaker.
  * Validates the returned vector length so a malformed response can't corrupt search.
+ *
+ * The breaker (default: the shared voyageBreaker) fails fast while OPEN — without an embedding there are
+ * no recommendations, so when Voyage is sustained-down we reject in ~0ms instead of burning the full
+ * retry budget (~7s) per request and hammering a struggling upstream. Each request's outcome (success,
+ * or failure after exhausting retries) is recorded so the breaker can open/recover.
  */
-export function createVoyageEmbeddingClient(voyage: VoyageLike, logger: Logger = noopLogger): EmbeddingClient {
+export function createVoyageEmbeddingClient(
+  voyage: VoyageLike,
+  logger: Logger = noopLogger,
+  breaker: CircuitBreaker = voyageBreaker
+): EmbeddingClient {
   return {
     async embedQuery(text: string): Promise<number[]> {
+      if (!(await breaker.allow())) {
+        logger.warn('voyage circuit breaker open — failing fast', { breaker: breaker.name })
+        throw new RetrievalError('EMBEDDING_FAILED', 'voyage circuit breaker open')
+      }
+
       let lastErr: unknown
       for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
         try {
@@ -85,6 +100,7 @@ export function createVoyageEmbeddingClient(voyage: VoyageLike, logger: Logger =
           if (!embedding || embedding.length !== QUERY_EMBED_DIMENSIONS) {
             throw new Error(`expected ${QUERY_EMBED_DIMENSIONS}-dim embedding, got ${embedding?.length ?? 'none'}`)
           }
+          await breaker.recordSuccess()
           return embedding
         } catch (err) {
           lastErr = err
@@ -95,6 +111,7 @@ export function createVoyageEmbeddingClient(voyage: VoyageLike, logger: Logger =
           }
         }
       }
+      await breaker.recordFailure()
       throw new RetrievalError('EMBEDDING_FAILED', 'failed to embed query after retries', lastErr)
     },
   }

@@ -48,6 +48,12 @@ export type FilterInput = {
   maxRuntimeMinutes?: number
   /** Content IDs to drop (already-seen, not-interested). */
   excludeContentIds?: string[]
+  /** Canonical genre / tag terms to exclude (from negative intent, e.g. ['Horror']). */
+  excludeGenres?: string[]
+  /** Content IDs exempt from genre exclusion (e.g. titles the user explicitly liked). */
+  protectContentIds?: string[]
+  /** Restrict to a single original language (ISO 639-1, e.g. 'en'). Undefined = any. */
+  originalLanguage?: string
 }
 
 export type FilterDeps = {
@@ -82,6 +88,43 @@ export function filterByExclusions(candidates: Candidate[], excludeContentIds?: 
   if (!excludeContentIds || excludeContentIds.length === 0) return candidates
   const excluded = new Set(excludeContentIds)
   return candidates.filter((c) => !excluded.has(c.content.id))
+}
+
+/**
+ * Removes candidates that match any excluded genre/tag term (from negative intent, e.g. "no horror").
+ * A term matches if it equals (case-insensitively) any of a title's genres, mood tags, or theme tags,
+ * so excluding "horror" drops both Horror-genre titles and horror-tagged ones. A title with no
+ * genres/tags is KEPT (fail-open) — absent metadata must not silently exclude content.
+ *
+ * `protectContentIds` are exempt and always kept: a genre-avoid preference must never hide a title the
+ * user explicitly liked.
+ */
+export function filterByExcludedGenres(
+  candidates: Candidate[],
+  excludeGenres?: string[],
+  protectContentIds?: string[]
+): Candidate[] {
+  if (!excludeGenres || excludeGenres.length === 0) return candidates
+  const excluded = new Set(excludeGenres.map((g) => g.trim().toLowerCase()))
+  const protectedIds = new Set(protectContentIds ?? [])
+  return candidates.filter((c) => {
+    if (protectedIds.has(c.content.id)) return true
+    const terms = [...c.content.genres, ...c.content.moodTags, ...c.content.themeTags]
+    return !terms.some((t) => excluded.has(t.trim().toLowerCase()))
+  })
+}
+
+/**
+ * Keeps candidates whose original language matches the requested one (ISO 639-1, case-insensitive).
+ * A title with no language metadata is KEPT (fail-open) — absent data must not silently exclude.
+ */
+export function filterByLanguage(candidates: Candidate[], originalLanguage?: string): Candidate[] {
+  if (!originalLanguage) return candidates
+  const want = originalLanguage.trim().toLowerCase()
+  return candidates.filter((c) => {
+    const lang = c.content.originalLanguage
+    return lang == null || lang.trim().toLowerCase() === want
+  })
 }
 
 // ─── Platform availability filter (batched I/O) ───────────────────────────────
@@ -156,6 +199,8 @@ export async function applyHardFilters(input: FilterInput, deps: FilterDeps): Pr
   // Pure predicates first — they require no I/O and reduce the platform-query payload.
   let result = filterByContentType(input.candidates, input.contentType)
   result = filterByRuntime(result, input.maxRuntimeMinutes)
+  result = filterByLanguage(result, input.originalLanguage)
+  result = filterByExcludedGenres(result, input.excludeGenres, input.protectContentIds)
   result = filterByExclusions(result, input.excludeContentIds)
 
   // Platform availability last (the only DB call), over the already-shrunk set.
@@ -167,6 +212,7 @@ export async function applyHardFilters(input: FilterInput, deps: FilterDeps): Pr
     contentType: input.contentType ?? 'any',
     platforms: input.platformSlugs,
     maxRuntimeMinutes: input.maxRuntimeMinutes ?? null,
+    excludeGenres: input.excludeGenres ?? [],
   })
 
   return result

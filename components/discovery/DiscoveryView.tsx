@@ -1,0 +1,139 @@
+// Discovery experience: a natural-language search box that calls /api/recommendations and renders
+// explained recommendation cards. Handles idle / loading / error / empty / results states.
+
+'use client'
+
+import { useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { AlertCircle, Search, Sparkles } from 'lucide-react'
+import { fetchExplanations, fetchRecommendations } from '@/lib/api/recommendations'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ConstraintChips } from '@/components/discovery/ConstraintChips'
+import { RecommendationCard } from '@/components/discovery/RecommendationCard'
+import { RecommendationSkeletonGrid } from '@/components/discovery/RecommendationSkeleton'
+
+const RESULT_LIMIT = 8
+
+const EXAMPLES = [
+  'dark psychological thriller series',
+  'feel-good comedy to unwind',
+  'mind-bending sci-fi movie',
+  'gripping true-crime documentary',
+]
+
+export function DiscoveryView() {
+  const [input, setInput] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: (query: string) => fetchRecommendations({ query, limit: RESULT_LIMIT }),
+  })
+
+  // Explanations are DEFERRED (modal-only): once the grid is here, prefetch them in the background so a
+  // card's "Why This One?" is usually ready by the time it's opened. Keyed by the searched query, so it
+  // aligns with the explanation cache and refetches only on a new search.
+  const searchedQuery = mutation.variables
+  const hasResults = (mutation.data?.recommendations.length ?? 0) > 0
+  const explanationsQuery = useQuery({
+    queryKey: ['explanations', searchedQuery],
+    enabled: Boolean(searchedQuery && hasResults),
+    staleTime: Infinity,
+    // Sends only the query — the server re-runs its own pipeline; no client ranking data is passed.
+    queryFn: () => fetchExplanations(searchedQuery!, RESULT_LIMIT),
+  })
+  const explanationsById = explanationsQuery.data ?? {}
+
+  function runSearch(query: string) {
+    const trimmed = query.trim()
+    if (!trimmed || mutation.isPending) return
+    setInput(trimmed)
+    mutation.mutate(trimmed)
+  }
+
+  return (
+    <div className="flex w-full max-w-5xl flex-col gap-8">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          runSearch(input)
+        }}
+        className="flex flex-col gap-3 sm:flex-row"
+      >
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="What are you in the mood for?"
+            aria-label="Describe what you want to watch"
+            className="h-12 pl-9 text-base"
+            autoFocus
+          />
+        </div>
+        <Button type="submit" size="lg" disabled={mutation.isPending || !input.trim()} className="h-12 px-8">
+          {mutation.isPending ? 'Finding…' : 'Show Me'}
+        </Button>
+      </form>
+
+      {mutation.isIdle && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Sparkles className="h-4 w-4" /> Try:
+          </span>
+          {EXAMPLES.map((ex) => (
+            <button
+              key={ex}
+              type="button"
+              onClick={() => runSearch(ex)}
+              className="rounded-full border px-3 py-1 text-foreground/80 transition-colors hover:bg-accent"
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mutation.isPending && <RecommendationSkeletonGrid />}
+
+      {mutation.isError && (
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-6">
+          <p className="inline-flex items-center gap-2 font-medium text-destructive">
+            <AlertCircle className="h-5 w-5" /> We hit a snag
+          </p>
+          <p className="text-sm text-muted-foreground">{mutation.error.message}</p>
+          <Button variant="outline" onClick={() => runSearch(input)}>
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {mutation.isSuccess &&
+        (mutation.data.recommendations.length === 0 ? (
+          <div className="rounded-lg border bg-muted/30 p-8 text-center">
+            <p className="font-medium">No matches this time</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Try rephrasing, or describe the mood, genre, or a show you loved.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              {mutation.data.count} {mutation.data.count === 1 ? 'pick' : 'picks'} for “{input}”
+            </p>
+            <ConstraintChips constraints={mutation.data.appliedConstraints} />
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {mutation.data.recommendations.map((rec) => (
+                <RecommendationCard
+                  key={rec.content.id}
+                  recommendation={rec}
+                  siblings={mutation.data.recommendations}
+                  explanation={explanationsById[rec.content.id]}
+                  explanationLoading={explanationsQuery.isFetching && !explanationsById[rec.content.id]}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+    </div>
+  )
+}

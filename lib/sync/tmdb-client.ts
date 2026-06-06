@@ -253,6 +253,20 @@ export function createTMDbClient(apiKey: string) {
     },
 
     /**
+     * Fetches a title's IMDb id via TMDb external_ids. Returns null on miss/error.
+     * Needed to key OMDb lookups for the blended-rating enrichment step.
+     */
+    async getImdbId(tmdbId: number, type: ContentType): Promise<string | null> {
+      try {
+        const path = type === 'movie' ? `/movie/${tmdbId}/external_ids` : `/tv/${tmdbId}/external_ids`
+        const data = await get<{ imdb_id: string | null }>(path)
+        return data.imdb_id?.trim() || null
+      } catch {
+        return null
+      }
+    },
+
+    /**
      * Fetches full movie details including keywords and credits.
      * Returns null if the title cannot be enriched (missing overview, API error, etc.)
      */

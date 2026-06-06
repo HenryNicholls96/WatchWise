@@ -1,22 +1,27 @@
--- WatchWise — Fix HNSW recall cap in match_content
--- Migration: 005_match_content_ef_search
+-- WatchWise — Blended Rating
+-- Migration: 006_blended_rating
 --
--- pgvector's HNSW index defaults to hnsw.ef_search = 40, which caps the number of rows
--- an index-backed query returns — regardless of the LIMIT / match_count requested. Once the
--- catalog grew past a few hundred titles the planner switched from exact scan to the HNSW
--- index, so match_content(match_count => 100) silently returned only 40 candidates.
---
--- Fix: raise ef_search to 200 for the duration of the call. ef_search must be >= the largest
--- match_count we request (MAX_CANDIDATE_LIMIT = 200). Higher ef_search = better recall at a small
--- latency cost; 200 is comfortable here.
---
--- IMPORTANT (Supabase): ef_search is set at RUNTIME via set_config(..., true) inside a plpgsql body,
--- NOT via a function-level `SET hnsw.ef_search` clause. Supabase's non-superuser `postgres` role
--- cannot satisfy the creation-time privilege check that the SET clause triggers for this pgvector
--- parameter ("ERROR: 42501: permission denied to set parameter"). set_config is a plain function
--- call (string arg, no creation-time validation) and runs once pgvector is active, so it applies
--- the transaction-local setting without elevated privileges. The signature and returned columns are
--- unchanged, so retrieval.ts / the match_content callers are unaffected.
+-- Adds storage for a blended "Rating" combining IMDb + Metacritic (via OMDb) + TMDb, computed by a
+-- background enrichment step (scripts/blend-ratings.ts) and read by the UI. We store the final
+-- blended value AND the per-source inputs (rating_sources jsonb) so weights can be re-tuned later
+-- without re-fetching. imdb_id is needed to key OMDb lookups (TMDb external_ids → imdb_id).
+
+alter table content
+  add column if not exists imdb_id            text,
+  add column if not exists blended_rating     numeric(5,2),   -- 0–100
+  add column if not exists rating_sources     jsonb,          -- { imdb, metacritic, tmdb, contributing }
+  add column if not exists ratings_updated_at timestamptz;
+
+create index if not exists content_imdb_id_idx on content (imdb_id);
+-- Staleness scans for the resumable enrichment job (nulls first = not-yet-rated).
+create index if not exists content_ratings_updated_idx on content (ratings_updated_at);
+
+-- Recreate match_content to also expose blended_rating + rating_sources (and keep the 005 ef_search
+-- fix via runtime set_config). Signature/return-order otherwise unchanged; similarity stays last.
+-- DROP first: CREATE OR REPLACE cannot change a function's return columns (the 005 version returns
+-- fewer columns), so replacing in place fails with 42P13. Dropping and recreating is safe — the
+-- function is only called via the match_content RPC.
+drop function if exists match_content(vector, integer);
 
 create or replace function match_content(
   query_embedding vector(512),
@@ -44,6 +49,8 @@ returns table (
   backdrop_url        text,
   original_language   text,
   content_rating      text,
+  blended_rating      numeric,
+  rating_sources      jsonb,
   similarity          double precision
 )
 language plpgsql
@@ -61,6 +68,7 @@ begin
       c.runtime_minutes, c.avg_episode_minutes, c.season_count,
       c.imdb_rating, c.tmdb_rating, c.tmdb_vote_count,
       c.poster_url, c.backdrop_url, c.original_language, c.content_rating,
+      c.blended_rating, c.rating_sources,
       1 - (c.embedding <=> query_embedding) as similarity
     from content c
     where c.embedding is not null

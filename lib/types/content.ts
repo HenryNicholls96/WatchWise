@@ -9,6 +9,18 @@ import { z } from 'zod'
 export const CONTENT_TYPES = ['movie', 'series'] as const
 export type ContentType = (typeof CONTENT_TYPES)[number]
 
+/** Per-source inputs behind a title's blended rating (stored in content.rating_sources jsonb). */
+export const ratingSourcesSchema = z
+  .object({
+    imdb: z.object({ rating: z.number(), votes: z.number().nullable() }).nullable().optional(),
+    metacritic: z.number().nullable().optional(),
+    tmdb: z.object({ rating: z.number(), votes: z.number().nullable() }).nullable().optional(),
+    contributing: z.array(z.string()).optional(),
+  })
+  .passthrough()
+
+export type RatingSources = z.infer<typeof ratingSourcesSchema>
+
 /**
  * A catalog title as returned by vector search. Mirrors the match_content RPC columns.
  * The raw 512-dim embedding is intentionally excluded — it is never needed downstream.
@@ -38,6 +50,9 @@ export const contentRowSchema = z.object({
   backdropUrl: z.string().nullable(),
   originalLanguage: z.string().nullable(),
   contentRating: z.string().nullable(),
+  /** Blended 0–100 "Rating" (IMDb + Metacritic + TMDb). Null until enrichment runs. */
+  blendedRating: z.coerce.number().nullable(),
+  ratingSources: ratingSourcesSchema.nullable(),
 })
 
 export type ContentRow = z.infer<typeof contentRowSchema>
@@ -69,6 +84,8 @@ export function parseContentRow(raw: Record<string, unknown>): ContentRow {
     backdropUrl: raw.backdrop_url,
     originalLanguage: raw.original_language,
     contentRating: raw.content_rating,
+    blendedRating: raw.blended_rating ?? null,
+    ratingSources: raw.rating_sources ?? null,
   })
 }
 

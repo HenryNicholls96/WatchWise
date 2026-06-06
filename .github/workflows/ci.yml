@@ -1,0 +1,73 @@
+name: CI
+
+# Safety-net gate (deployment-and-rollouts.md, P0 #1): every push and PR to main must pass type-check,
+# lint, the full test suite, and a production build before it can be relied on / merged. Catches the exact
+# classes of regression we hit during recent work (TS type errors, lint issues, failing tests, build breaks).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Supersede in-flight runs for the same ref so a rapid re-push doesn't queue redundant work.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # DB-free guard on the migration files (naming, unique versions, no empty/unguarded-destructive changes).
+  # Fast and isolated — needs only Node, no dependencies, no database. The applied-state ledger lives in
+  # supabase_migrations.schema_migrations on the remote (Supabase CLI); applying pending migrations to a
+  # real preview branch is the optional next step documented in docs/deployment-and-rollouts.md.
+  migrations:
+    name: migration ledger check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check migrations
+        run: node scripts/check-migrations.mjs
+
+  verify:
+    name: type-check · lint · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # npm ci installs exactly from package-lock.json (reproducible, fast, fails on lock drift).
+      - name: Install dependencies
+        run: npm ci
+
+      # Steps run in cheap-to-expensive order so a failure surfaces fast and points at the exact check.
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- run # vitest single run (no watch), 195 tests
+
+      # Catches production build breaks (RSC/route issues) that dev + tests don't. The gated pages reference
+      # only the public Supabase vars during prerender (and fail open without them); placeholders keep the
+      # build deterministic with no secrets. No real network calls happen at build time.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
