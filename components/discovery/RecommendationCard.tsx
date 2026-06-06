@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Separator } from '@/components/ui/separator'
 import { PlatformIconRow } from '@/components/discovery/PlatformIcon'
 import { WatchWiseMark } from '@/components/brand/WatchWiseLogo'
 
@@ -231,29 +230,42 @@ export function RecommendationCard({
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-lg">
-          <div className="flex items-start justify-between gap-4">
-            <DialogHeader className="space-y-1 text-left">
-              <DialogTitle className="text-xl">{content.title}</DialogTitle>
-              <DialogDescription>{metaLine(content)}</DialogDescription>
-            </DialogHeader>
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
-              <WatchWiseRating stars={stars} markClassName="h-5 w-5 text-xs" starClass="h-4 w-4" />
-              {rating != null && <RatingScore value={rating} sourcesLabel={ratingSources} />}
-            </div>
-          </div>
+          <DialogHeader className="space-y-1 text-left">
+            <DialogTitle className="text-xl">{content.title}</DialogTitle>
+            <DialogDescription>{metaLine(content)}</DialogDescription>
+          </DialogHeader>
 
+          {/* The right column is sized to the poster's height so "Where to watch" sits at its top and the
+              ratings sit at its bottom — both visually anchored to the poster. */}
           <div className="flex gap-4">
             <Poster url={content.posterUrl} title={content.title} className="h-48 w-32 shrink-0" />
-            <div className="flex flex-col gap-2 text-sm">
-              {content.genres.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {content.genres.map((g) => (
-                    <Badge key={g} variant="secondary">
-                      {g}
-                    </Badge>
-                  ))}
-                </div>
-              )}
+            <div className="flex h-48 min-w-0 flex-1 flex-col gap-2">
+              <div className="flex items-start justify-between gap-2">
+                {content.genres.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {content.genres.map((g) => (
+                      <Badge key={g} variant="secondary">
+                        {g}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <span />
+                )}
+                {platforms.length > 0 && (
+                  <div className="flex shrink-0 flex-col items-end gap-1 rounded-lg border bg-muted/30 px-2 py-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Where to watch
+                    </span>
+                    <PlatformIconRow platforms={platforms} size="xs" />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-auto flex flex-col items-start gap-1.5">
+                <WatchWiseRating stars={stars} markClassName="h-5 w-5 text-xs" starClass="h-4 w-4" />
+                {rating != null && <RatingScore value={rating} sourcesLabel={ratingSources} />}
+              </div>
             </div>
           </div>
 
@@ -267,6 +279,13 @@ export function RecommendationCard({
               <p className="text-sm leading-relaxed text-muted-foreground">A strong match for what you asked for.</p>
             )}
           </section>
+
+          {content.description && (
+            <section className="space-y-1.5">
+              <h4 className="font-semibold">Summary</h4>
+              <p className="text-sm leading-relaxed text-muted-foreground">{content.description}</p>
+            </section>
+          )}
 
           {similar.length > 0 && (
             <section className="space-y-2">
@@ -287,20 +306,6 @@ export function RecommendationCard({
               </div>
             </section>
           )}
-
-          {content.description && (
-            <section className="space-y-1.5">
-              <h4 className="font-semibold">Summary</h4>
-              <p className="text-sm leading-relaxed text-muted-foreground">{content.description}</p>
-            </section>
-          )}
-
-          <Separator />
-
-          <section className="space-y-2">
-            <h4 className="font-semibold">Where to Watch</h4>
-            <PlatformIconRow platforms={platforms} size="md" />
-          </section>
         </DialogContent>
       </Dialog>
     </>

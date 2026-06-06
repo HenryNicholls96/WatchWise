@@ -26,7 +26,7 @@ export default async function Home() {
           No more scrolling
         </h1>
         <p className="max-w-xl text-lg text-muted-foreground">
-          Tell me what you&rsquo;re after and we&rsquo;ll find you a gem
+          Type in what you&rsquo;re looking for and we&rsquo;ll find you a gem
         </p>
       </header>
 
