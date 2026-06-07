@@ -19,9 +19,6 @@ export default async function Home() {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-gradient-to-b from-accent/60 via-background to-background"
       />
 
-      {/* One-time post-onboarding reassurance; renders nothing unless the user just finished onboarding. */}
-      <TasteTunedBanner />
-
       <header className="mb-10 flex w-full max-w-5xl flex-col gap-3">
         <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           WatchWise
@@ -33,6 +30,10 @@ export default async function Home() {
           Type in what you&rsquo;re looking for and we&rsquo;ll find you a gem
         </p>
       </header>
+
+      {/* One-time post-onboarding reassurance — sits below the header, above the primary content.
+          Renders nothing unless the user just finished onboarding. */}
+      <TasteTunedBanner />
 
       <DiscoveryView />
     </main>
