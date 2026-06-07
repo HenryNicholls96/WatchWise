@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import {
   captureException,
+  flushErrorReporting,
   initErrorReporting,
   isErrorReportingEnabled,
 } from '@/lib/utils/error-reporting'
@@ -27,9 +28,12 @@ export async function GET(): Promise<NextResponse> {
     level: 'error',
   })
 
+  const flushed = await flushErrorReporting(2_000)
+
   return NextResponse.json(
     {
       sentEvent: true,
+      flushed,
       reportingEnabled: isErrorReportingEnabled(),
       dsnPresent: Boolean(process.env.SENTRY_DSN),
       sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? null,

@@ -40,6 +40,7 @@ type SentryContext = {
 type Reporter = {
   captureException(error: unknown, context: SentryContext): void
   captureMessage(message: string, context: SentryContext): void
+  flush?(timeoutMs: number): Promise<boolean>
 }
 
 let reporter: Reporter | null = null
@@ -99,6 +100,7 @@ export async function initErrorReporting(deps: { logger?: Logger } = {}): Promis
       captureMessage: (message, ctx) => {
         Sentry.captureMessage(message, ctx)
       },
+      flush: (timeoutMs) => Sentry.flush(timeoutMs),
     }
     logger.info('error reporting initialized (sentry)', { release: getCurrentRelease() })
   } catch (err) {
@@ -124,6 +126,19 @@ export function captureMessage(message: string, context: ErrorContext = {}): voi
     reporter?.captureMessage(message, { level: 'info', ...toSentryContext(context) })
   } catch {
     // no-op
+  }
+}
+
+/**
+ * Flushes buffered events to Sentry. REQUIRED before a serverless function returns: the SDK ships events
+ * asynchronously, and Vercel freezes the instance after the response — un-flushed events are lost. No-op (and
+ * resolves false) when reporting is disabled. Never throws.
+ */
+export async function flushErrorReporting(timeoutMs = 2_000): Promise<boolean> {
+  try {
+    return (await reporter?.flush?.(timeoutMs)) ?? false
+  } catch {
+    return false
   }
 }
 
