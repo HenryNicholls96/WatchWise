@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(): Promise<NextResponse> {
   const error = new Error('WatchWise Sentry verification probe — safe to ignore')
   captureException(error, {
-    route: 'GET /api/_sentry-check',
+    route: 'GET /api/sentry-check',
     errorCode: 'SENTRY_VERIFICATION',
     level: 'error',
   })
