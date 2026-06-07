@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeBreaker, voyageBreaker } from '@/lib/utils/circuit-breaker'
 import { __resetRateLimitStore } from '@/lib/utils/rate-limit'
+import { __resetTasteProfileCacheForTests } from '@/lib/recommendations/taste-profile'
 
 const USER_ID = '44444444-4444-4444-8444-444444444444'
 const C1 = '11111111-1111-4111-8111-111111111111'
@@ -161,6 +162,7 @@ beforeEach(() => {
   claudeBreaker.reset()
   voyageBreaker.reset()
   __resetRateLimitStore()
+  __resetTasteProfileCacheForTests()
   vi.stubEnv('VOYAGE_API_KEY', 'test')
   vi.stubEnv('ANTHROPIC_API_KEY', 'test')
   h.emitRec.mockReset()

@@ -29,7 +29,9 @@ import { type TasteSeed, tasteSentimentSchema } from '@/lib/types/taste'
 import { type EmbeddingClient, retrieveCandidates, DEFAULT_CANDIDATE_LIMIT } from '@/lib/recommendations/retrieval'
 import { applyHardFilters } from '@/lib/recommendations/filters'
 import { type ParsedIntent, PLATFORM_SLUGS, parseQueryConstraints } from '@/lib/recommendations/intent'
-import { type ScoredCandidate, scoreAndRank } from '@/lib/recommendations/scoring'
+import { type ScoreWeights, type ScoredCandidate, DEFAULT_SCORE_WEIGHTS, scoreAndRank } from '@/lib/recommendations/scoring'
+import { type TasteProfile, emptyTasteProfile, loadTasteProfile } from '@/lib/recommendations/taste-profile'
+import { NEUTRAL_AFFINITY } from '@/lib/onboarding/categories'
 import { type UserDefaults, loadUserDefaults } from '@/lib/recommendations/user-defaults'
 import {
   type ExplanationCache,
@@ -82,6 +84,11 @@ export type RecommendationQuery = {
   userId?: string
   /** Pre-loaded seeds. Takes precedence over userId, bypassing the DB. */
   tasteSeeds?: TasteSeed[]
+  /** Pre-loaded category-affinity profile. Takes precedence over userId loading (tests inject this). */
+  tasteProfile?: TasteProfile
+  /** Score weights to apply, flag/config-resolved by the caller. Defaults to DEFAULT_SCORE_WEIGHTS. Both
+   *  recommendation routes MUST resolve these identically so the deferred-explanation re-run matches the grid. */
+  scoreWeights?: ScoreWeights
   /** Platform slugs the user can watch (e.g. ['netflix','prime']). Empty = no platform gate. */
   platformSlugs?: string[]
   region?: string
@@ -197,13 +204,19 @@ export async function getRecommendations(
   // 1) Load this user's signals in parallel:
   //    • tasteSeeds — liked/disliked swipes → drive RANKING (computePersonalization), never filtering.
   //    • userDefaults — onboarding answers → default FILTERS, applied only where unspecified this session.
-  const [tasteSeeds, userDefaults] = await Promise.all([
+  const [tasteSeeds, userDefaults, tasteProfile] = await Promise.all([
     query.tasteSeeds
       ? Promise.resolve(query.tasteSeeds)
       : query.userId
         ? loadTasteSeeds(query.userId, deps.supabase, logger)
         : Promise.resolve([] as TasteSeed[]),
     query.userId ? loadUserDefaults(query.userId, deps.supabase, logger) : Promise.resolve({} as UserDefaults),
+    // Category-affinity prior (the onboarding swipe signal). Anonymous-with-profile users have one too.
+    query.tasteProfile
+      ? Promise.resolve(query.tasteProfile)
+      : query.userId
+        ? loadTasteProfile(query.userId, deps.supabase, { logger })
+        : Promise.resolve(emptyTasteProfile()),
   ])
 
   // Merge constraints. PRECEDENCE: explicit API param  >  parsed query intent  >  onboarding default.
@@ -259,9 +272,15 @@ export async function getRecommendations(
   }
   const filterMs = filterTimer()
 
-  // 4) Score, then slice to the final count before the (costly) explanation step.
+  // 4) Score, then slice to the final count before the (costly) explanation step. The category-affinity
+  //    prior re-ranks toward the user's onboarding taste; weights are flag/config-resolved by the route
+  //    (categoryAffinity weight → 0 when the kill-switch is off).
   const scoreTimer = startTimer()
-  const ranked = scoreAndRank({ candidates: filtered, tasteSeeds }, { logger })
+  const scoreWeights = query.scoreWeights ?? DEFAULT_SCORE_WEIGHTS
+  const ranked = scoreAndRank(
+    { candidates: filtered, tasteSeeds, categoryAffinities: tasteProfile.categoryAffinities, weights: scoreWeights },
+    { logger }
+  )
   const top = ranked.slice(0, limit)
   const scoreMs = scoreTimer()
 
@@ -339,8 +358,22 @@ export async function getRecommendations(
   // numbers/booleans, so it cannot throw. The route stamps requestId + totalMs + outcome and emits the
   // single structured event.
   const ratedReturned = recommendations.filter((r) => r.content.blendedRating != null).length
+  // Category-affinity lift signals — measured over the RETURNED set so we can compare flag on/off.
+  const affinityValues = recommendations.map((r) => r.scoreBreakdown.categoryAffinity)
+  const affinityInfluencedCount = affinityValues.filter((a) => Math.abs(a - NEUTRAL_AFFINITY) > 1e-6).length
+  const avgCategoryAffinity =
+    affinityValues.length > 0
+      ? Math.round((affinityValues.reduce((s, a) => s + a, 0) / affinityValues.length) * 1000) / 1000
+      : NEUTRAL_AFFINITY
   const metrics: RecommendationPipelineMetrics = {
     stages: { retrieveMs, filterMs, scoreMs, explainMs, offersMs },
+    personalization: {
+      categoryAffinityApplied: scoreWeights.categoryAffinity > 0,
+      categoryAffinityWeight: scoreWeights.categoryAffinity,
+      hasTasteProfile: tasteProfile.categoryAffinities.size > 0,
+      affinityInfluencedCount,
+      avgCategoryAffinity,
+    },
     explanation: {
       cacheHits: explanationStats.cacheHits,
       cacheMisses: explanationStats.cacheMisses,

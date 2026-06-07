@@ -25,15 +25,72 @@
 import { type Candidate, type ContentRow } from '@/lib/types/content'
 import { type Logger, noopLogger } from '@/lib/types/logger'
 import { type TasteSeed } from '@/lib/types/taste'
+import { categoriesOf, NEUTRAL_AFFINITY } from '@/lib/onboarding/categories'
 
 // ─── Tunables ─────────────────────────────────────────────────────────────────
 
-/** Composite-score weights. Exposed so the breakdown is fully self-describing when logged. */
-export const SCORE_WEIGHTS = {
-  vectorSimilarity: 0.6,
-  personalization: 0.25,
+/** The four composite-score weights. Always sum to 1; logged inside every scoreBreakdown so a row is
+ *  self-describing and the category-affinity lift is measurable after the fact. */
+export type ScoreWeights = {
+  vectorSimilarity: number
+  personalization: number
+  categoryAffinity: number
+  qualityScore: number
+}
+
+/**
+ * Default weights (per the review). vectorSimilarity stays DOMINANT so an explicit query is always the
+ * primary signal; categoryAffinity is the onboarding taste prior; personalization is per-title taste
+ * overlap; quality is the rating floor.
+ *
+ *   vectorSimilarity 0.50 · personalization 0.20 · categoryAffinity 0.15 · quality 0.15
+ */
+export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
+  vectorSimilarity: 0.5,
+  personalization: 0.2,
+  categoryAffinity: 0.15,
   qualityScore: 0.15,
-} as const
+}
+
+/** Back-compat alias for callers/tests that referenced the old name. */
+export const SCORE_WEIGHTS = DEFAULT_SCORE_WEIGHTS
+
+// The non-affinity weights are fixed; the categoryAffinity weight is the single tunable. Whatever it's
+// set to (or 0 when disabled) is absorbed by vectorSimilarity so the four always sum to 1 — no caller
+// has to keep them balanced.
+const FIXED_PERSONALIZATION_WEIGHT = 0.2
+const FIXED_QUALITY_WEIGHT = 0.15
+const VECTOR_PLUS_AFFINITY_BUDGET = 1 - FIXED_PERSONALIZATION_WEIGHT - FIXED_QUALITY_WEIGHT // 0.65
+/** Upper bound on the tunable so a misconfig can't starve the query signal. */
+const MAX_CATEGORY_AFFINITY_WEIGHT = 0.4
+/** Default tunable value (env-overridable, see getCategoryAffinityWeight). */
+export const DEFAULT_CATEGORY_AFFINITY_WEIGHT = 0.15
+
+/**
+ * Builds a valid ScoreWeights from the single tunable. `categoryAffinityWeight` ≤ 0 (e.g. when the
+ * `category_affinity` flag is OFF) collapses to the pre-personalization behaviour: the affinity factor
+ * contributes nothing and its budget returns to vectorSimilarity. Always sums to 1.
+ */
+export function buildScoreWeights(categoryAffinityWeight: number): ScoreWeights {
+  const affinity = clamp(categoryAffinityWeight, 0, MAX_CATEGORY_AFFINITY_WEIGHT)
+  return {
+    vectorSimilarity: VECTOR_PLUS_AFFINITY_BUDGET - affinity,
+    personalization: FIXED_PERSONALIZATION_WEIGHT,
+    categoryAffinity: affinity,
+    qualityScore: FIXED_QUALITY_WEIGHT,
+  }
+}
+
+/**
+ * Resolves the tunable affinity weight from the environment (so it can be tweaked without a deploy of the
+ * scorer). Pure (env injected) for testability. Defaults to DEFAULT_CATEGORY_AFFINITY_WEIGHT; clamped.
+ */
+export function getCategoryAffinityWeight(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.SCORE_CATEGORY_AFFINITY_WEIGHT
+  if (raw == null) return DEFAULT_CATEGORY_AFFINITY_WEIGHT
+  const n = Number(raw)
+  return Number.isFinite(n) ? clamp(n, 0, MAX_CATEGORY_AFFINITY_WEIGHT) : DEFAULT_CATEGORY_AFFINITY_WEIGHT
+}
 
 /** Personalization is centered here so a candidate with no taste signal is neither helped nor hurt. */
 export const PERSONALIZATION_NEUTRAL = 0.5
@@ -76,9 +133,11 @@ export class ScoringError extends Error {
 export type ScoreBreakdown = {
   vectorSimilarity: number
   personalization: number
+  /** Onboarding category-affinity prior in [0,1] (0.5 neutral). */
+  categoryAffinity: number
   qualityScore: number
-  /** The weights applied to the three factors above — included so a logged row is self-explaining. */
-  weights: typeof SCORE_WEIGHTS
+  /** The exact weights applied — logged so a row is self-explaining and the affinity lift is measurable. */
+  weights: ScoreWeights
 }
 
 export type Confidence = 'high' | 'low'
@@ -96,6 +155,11 @@ export type ScoringInput = {
   candidates: Candidate[]
   /** The user's onboarding ratings. Empty = no personalization (all candidates score neutral on that factor). */
   tasteSeeds?: TasteSeed[]
+  /** Per-category taste prior (category id → 0..1). Absent/empty ⇒ every candidate scores neutral here. */
+  categoryAffinities?: Map<string, number>
+  /** Weights to apply. Defaults to DEFAULT_SCORE_WEIGHTS; the engine passes flag/config-resolved weights so
+   *  the categoryAffinity weight is tunable without a code change. */
+  weights?: ScoreWeights
 }
 
 export type ScoringDeps = {
@@ -178,6 +242,28 @@ export function computeQualityScore(content: ContentRow): number {
   return ratingNorm * voteConfidence
 }
 
+/**
+ * Category-affinity factor in [0,1] for one candidate: the mean of the user's affinities across the
+ * categories this title belongs to (genres → categories via the registry). NEUTRAL when the title is in
+ * no known category, or the user has no signal there — so an uncategorized or untasted title is never
+ * penalized, only left un-boosted. This is the onboarding swipe signal made auditable per result.
+ */
+export function computeCategoryAffinity(content: ContentRow, affinities?: Map<string, number>): number {
+  if (!affinities || affinities.size === 0) return NEUTRAL_AFFINITY
+  const cats = categoriesOf(content)
+  if (cats.length === 0) return NEUTRAL_AFFINITY
+  let sum = 0
+  let n = 0
+  for (const c of cats) {
+    const a = affinities.get(c)
+    if (a !== undefined) {
+      sum += a
+      n++
+    }
+  }
+  return n === 0 ? NEUTRAL_AFFINITY : sum / n
+}
+
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 /**
@@ -196,16 +282,20 @@ export function scoreAndRank(input: ScoringInput, deps: ScoringDeps = {}): Score
     throw new ScoringError('INVALID_INPUT', 'tasteSeeds must be an array when provided')
   }
   const seeds = input.tasteSeeds ?? []
+  const affinities = input.categoryAffinities
+  const weights = input.weights ?? DEFAULT_SCORE_WEIGHTS
 
   const scored: ScoredCandidate[] = input.candidates.map((candidate) => {
     const vectorSimilarity = clamp01(candidate.vectorSimilarity)
     const personalization = computePersonalization(candidate.content, seeds)
+    const categoryAffinity = computeCategoryAffinity(candidate.content, affinities)
     const qualityScore = computeQualityScore(candidate.content)
 
     const score =
-      vectorSimilarity * SCORE_WEIGHTS.vectorSimilarity +
-      personalization * SCORE_WEIGHTS.personalization +
-      qualityScore * SCORE_WEIGHTS.qualityScore
+      vectorSimilarity * weights.vectorSimilarity +
+      personalization * weights.personalization +
+      categoryAffinity * weights.categoryAffinity +
+      qualityScore * weights.qualityScore
 
     return {
       content: candidate.content,
@@ -214,8 +304,9 @@ export function scoreAndRank(input: ScoringInput, deps: ScoringDeps = {}): Score
       scoreBreakdown: {
         vectorSimilarity,
         personalization,
+        categoryAffinity,
         qualityScore,
-        weights: SCORE_WEIGHTS,
+        weights,
       },
     }
   })
@@ -246,4 +337,9 @@ function tagSet(content: ContentRow): Set<string> {
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(1, n))
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo
+  return Math.max(lo, Math.min(hi, n))
 }

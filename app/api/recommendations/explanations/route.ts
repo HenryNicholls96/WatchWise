@@ -33,6 +33,7 @@ import {
 import { createSupabaseExplanationCache } from '@/lib/recommendations/explanation-cache'
 import { EngineError, getRecommendations } from '@/lib/recommendations/engine'
 import { evaluateAllFlags } from '@/lib/flags'
+import { buildScoreWeights, getCategoryAffinityWeight } from '@/lib/recommendations/scoring'
 import { captureException, flushErrorReporting } from '@/lib/utils/error-reporting'
 import { type ExplanationRequestMetrics, emitExplanationMetrics, getCurrentRelease, makeJourneyId, startTimer } from '@/lib/utils/observability'
 
@@ -131,11 +132,15 @@ export async function POST(req: Request): Promise<NextResponse> {
     const serviceClient = createServiceRoleClient()
     if (serviceClient) explanationCache = createSupabaseExplanationCache(serviceClient, { logger })
 
+    // Resolve the SAME score weights the grid used (from the same flags), so the re-ranked result set is
+    // identical and explanations map back cleanly by content id.
+    const scoreWeights = buildScoreWeights(flags.category_affinity ? getCategoryAffinityWeight() : 0)
+
     // Re-run the SAME pipeline, explanations ON, no session write. Scoring is server-authoritative; the
     // client supplied no ranking data. Deterministic for a given (query, taste, catalog), so the result
     // set aligns with the grid the main call returned; the client maps explanations back by content id.
     const { recommendations, metrics } = await getRecommendations(
-      { queryText: query, userId, withExplanations: true, recordSession: false, ...options },
+      { queryText: query, userId, withExplanations: true, recordSession: false, scoreWeights, ...options },
       { supabase, embeddingClient, explanationClient, explanationCache, logger }
     )
 

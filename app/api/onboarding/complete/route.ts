@@ -9,7 +9,9 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { type Logger, consoleLogger } from '@/lib/types/logger'
-import { completeOnboardingSchema } from '@/lib/types/onboarding'
+import { type Swipe, completeOnboardingSchema } from '@/lib/types/onboarding'
+import type { InteractionAction } from '@/lib/types/interactions'
+import { computeCategoryAffinities } from '@/lib/recommendations/taste-profile'
 
 export const runtime = 'nodejs'
 
@@ -42,7 +44,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     //    re-running onboarding overwrites prior sentiment). This is the user's actual taste signal;
     //    if it can't be saved there's nothing to fail open to, so surface the error and let them retry.
     if (swipes.length > 0) {
-      const rows = swipes.map((s) => ({ user_id: userId, content_id: s.contentId, sentiment: s.sentiment }))
+      const rows = swipes.map((s) => ({
+        user_id: userId,
+        content_id: s.contentId,
+        sentiment: s.sentiment,
+        category: s.category ?? null,
+      }))
       const { error: seedErr } = await supabase
         .from('user_taste_seeds')
         .upsert(rows, { onConflict: 'user_id,content_id' })
@@ -51,6 +58,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         return NextResponse.json({ error: 'Could not save your picks. Please try again.' }, { status: 502 })
       }
     }
+
+    // 1b) Personalization signals — BEST-EFFORT (never blocks completion): append the immutable swipe log
+    //     and the derived per-category affinity prior the scorer reads. This is what makes the 50 swipes
+    //     actually move the user's results. A failure here just means a slightly weaker first session.
+    await persistPersonalizationSignalsBestEffort(supabase, userId, swipes, logger)
 
     // 2) Persist profile preferences + mark onboarding complete — BEST-EFFORT. Once the seeds above are
     //    saved, onboarding has succeeded from the user's perspective; a profile-write hiccup must never
@@ -109,4 +121,62 @@ async function persistProfileBestEffort(
     logger.warn('onboarding flag fallback threw', { message: err instanceof Error ? err.message : String(err) })
   }
   return false
+}
+
+/** Maps a swipe to its append-only interaction action (explicit `action` wins; else derived from sentiment). */
+function swipeAction(s: Swipe): InteractionAction {
+  if (s.action) return s.action
+  return s.sentiment === 'liked' ? 'swipe_liked' : 'swipe_disliked'
+}
+
+/**
+ * Writes the append-only interaction log + the derived per-category affinity rows. NEVER throws and NEVER
+ * blocks onboarding completion — the taste seeds above are the load-bearing write; these enrich ranking.
+ * Affinity is only computed from swipes that carry a `category` (the new 5×10 deck); older payloads without
+ * categories simply produce no affinity rows (and ranking falls back to seed overlap), so this is safe to
+ * ship ahead of the new swipe UI.
+ */
+async function persistPersonalizationSignalsBestEffort(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  userId: string,
+  swipes: Swipe[],
+  logger: Logger
+): Promise<void> {
+  if (swipes.length === 0) return
+
+  // Append-only interaction rows (immutable record of every swipe).
+  try {
+    const interactions = swipes.map((s) => ({
+      user_id: userId,
+      content_id: s.contentId,
+      action: swipeAction(s),
+      category: s.category ?? null,
+      source: 'onboarding',
+    }))
+    const { error } = await supabase.from('user_content_interactions').insert(interactions)
+    if (error) logger.warn('interaction log insert failed (non-fatal)', { message: error.message })
+  } catch (err) {
+    logger.warn('interaction log insert threw (non-fatal)', { message: err instanceof Error ? err.message : String(err) })
+  }
+
+  // Derived category affinities (the signal the scorer reads). Pure compute, then idempotent upsert.
+  try {
+    const signals = swipes
+      .filter((s) => s.category)
+      .map((s) => ({ category: s.category!, action: swipeAction(s) as 'swipe_liked' | 'swipe_disliked' | 'swipe_not_seen' }))
+    const rows = computeCategoryAffinities(signals).map((r) => ({
+      user_id: userId,
+      category: r.category,
+      affinity: r.affinity,
+      sample_count: r.sampleCount,
+      updated_at: new Date().toISOString(),
+    }))
+    if (rows.length > 0) {
+      const { error } = await supabase.from('user_category_affinity').upsert(rows, { onConflict: 'user_id,category' })
+      if (error) logger.warn('category affinity upsert failed (non-fatal)', { message: error.message })
+    }
+  } catch (err) {
+    logger.warn('category affinity upsert threw (non-fatal)', { message: err instanceof Error ? err.message : String(err) })
+  }
 }

@@ -22,6 +22,7 @@ function pipeline(over: Partial<RecommendationPipelineMetrics> = {}): Recommenda
     stages: { retrieveMs: 5, filterMs: 2, scoreMs: 1, explainMs: 40, offersMs: 8 },
     explanation: { cacheHits: 5, cacheMisses: 3, llmUsed: true, fallbackCount: 0, deadlineHit: false, llmError: false, llmRetries: 0, breakerOpen: false },
     funnel: { retrieved: 100, filtered: 42, returned: 8, zeroResult: false, genreExclusionsRelaxed: false },
+    personalization: { categoryAffinityApplied: true, categoryAffinityWeight: 0.15, hasTasteProfile: true, affinityInfluencedCount: 6, avgCategoryAffinity: 0.62 },
     blendedCoverage: 1,
     ...over,
   }

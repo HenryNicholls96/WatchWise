@@ -65,7 +65,7 @@ function makeResult(o: ResultOverrides = {}): ScoredCandidate {
     content: content(o.content),
     score: 0.5,
     confidence: o.confidence ?? (vectorSimilarity >= 0.55 ? 'high' : 'low'),
-    scoreBreakdown: { vectorSimilarity, personalization, qualityScore, weights: SCORE_WEIGHTS },
+    scoreBreakdown: { vectorSimilarity, personalization, categoryAffinity: 0.5, qualityScore, weights: SCORE_WEIGHTS },
   }
 }
 

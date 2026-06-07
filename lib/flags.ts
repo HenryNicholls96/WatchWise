@@ -37,6 +37,11 @@ export const FLAG_REGISTRY = {
       'Use Claude Haiku for "why this" explanations. Off → deterministic fallbacks only (cost/incident kill switch).',
     defaultEnabled: true,
   },
+  category_affinity: {
+    description:
+      'Apply the onboarding category-affinity prior as a scoring factor. Off → its weight collapses to 0 (results fall back to pre-personalization ranking). Lets us A/B the lift and kill it instantly if it misbehaves.',
+    defaultEnabled: true,
+  },
 } satisfies Record<string, FlagDefinition>
 
 export type FlagName = keyof typeof FLAG_REGISTRY

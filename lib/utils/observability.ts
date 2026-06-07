@@ -95,6 +95,20 @@ export type FunnelMetrics = {
   genreExclusionsRelaxed: boolean
 }
 
+/** Category-affinity personalization signals for one request — lets us measure the onboarding lift. */
+export type PersonalizationMetrics = {
+  /** True when the category_affinity flag is on AND the weight is > 0. */
+  categoryAffinityApplied: boolean
+  /** The categoryAffinity weight actually used (0 when the flag/kill-switch is off). */
+  categoryAffinityWeight: number
+  /** True when the caller had ≥1 affinity row (i.e. completed the category swiping). */
+  hasTasteProfile: boolean
+  /** How many returned results carried a non-neutral category affinity (the prior actually fired). */
+  affinityInfluencedCount: number
+  /** Mean category affinity across returned results (0.5 = neutral) — the headline lift signal. */
+  avgCategoryAffinity: number
+}
+
 /**
  * Everything the engine measures for one pipeline run. Assembled from values the engine has already
  * computed (lengths, timings, flags), so building it cannot throw.
@@ -103,6 +117,7 @@ export type RecommendationPipelineMetrics = {
   stages: StageTimings
   explanation: ExplanationMetrics
   funnel: FunnelMetrics
+  personalization: PersonalizationMetrics
   /** Fraction (0–1) of returned results carrying a blended_rating. */
   blendedCoverage: number
 }

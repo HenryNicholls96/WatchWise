@@ -28,6 +28,7 @@ import {
 import { createSupabaseExplanationCache } from '@/lib/recommendations/explanation-cache'
 import { EngineError, getRecommendations } from '@/lib/recommendations/engine'
 import { evaluateAllFlags } from '@/lib/flags'
+import { buildScoreWeights, getCategoryAffinityWeight } from '@/lib/recommendations/scoring'
 import { captureException, flushErrorReporting } from '@/lib/utils/error-reporting'
 import { type RecommendationMetrics, emitRecommendationMetrics, getCurrentRelease, makeJourneyId, startTimer } from '@/lib/utils/observability'
 
@@ -125,15 +126,18 @@ export async function POST(req: Request): Promise<NextResponse> {
     const serviceClient = createServiceRoleClient()
     if (serviceClient) explanationCache = createSupabaseExplanationCache(serviceClient, { logger })
 
+    // Resolve flags once (cheap, cached): used to stamp the event AND to gate the category-affinity scoring
+    // weight. category_affinity off → weight 0 (server-side; never client-supplied, so it's trust-safe).
+    const flags = await evaluateAllFlags(userId ?? `ip:${ip}`, { logger })
+    const scoreWeights = buildScoreWeights(flags.category_affinity ? getCategoryAffinityWeight() : 0)
+
     // Explanations are DEFERRED: the grid doesn't render them (they live only in the detail modal), so
     // we return scored results immediately and the client fetches explanations via /explanations.
     const { recommendations, appliedConstraints, metrics } = await getRecommendations(
-      { queryText: query, userId, withExplanations: false, ...options },
+      { queryText: query, userId, withExplanations: false, scoreWeights, ...options },
       { supabase, embeddingClient, explanationClient, explanationCache, logger }
     )
 
-    // Stamp the resolved flag set on the event (cheap, cached) so metrics can be sliced by variant.
-    const flags = await evaluateAllFlags(userId ?? `ip:${ip}`, { logger })
     emit({ journeyId, outcome: 'ok', pipeline: metrics, flags })
 
     // Note: metrics are logged, never returned to the client.

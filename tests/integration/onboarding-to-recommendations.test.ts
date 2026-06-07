@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeBreaker, voyageBreaker } from '@/lib/utils/circuit-breaker'
 import { __resetRateLimitStore } from '@/lib/utils/rate-limit'
 import { __resetFlagCacheForTests } from '@/lib/flags'
+import { __resetTasteProfileCacheForTests } from '@/lib/recommendations/taste-profile'
 import { __resetReporterForTests } from '@/lib/utils/error-reporting'
 
 const USER_ID = '99999999-9999-4999-8999-999999999999'
@@ -165,6 +166,7 @@ beforeEach(() => {
   claudeBreaker.reset()
   __resetRateLimitStore()
   __resetFlagCacheForTests()
+  __resetTasteProfileCacheForTests()
   __resetReporterForTests()
   vi.stubEnv('VOYAGE_API_KEY', 'test')
   vi.stubEnv('ANTHROPIC_API_KEY', 'test')
