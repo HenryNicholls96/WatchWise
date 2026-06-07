@@ -15,6 +15,8 @@ export type RecommendationsRequest = {
   contentType?: 'movie' | 'series'
   /** Soft genre exclusions to relax (the UI's removable "Excluding: X" chips). Only broadens results. */
   allowGenres?: string[]
+  /** Drop titles the user has marked seen (the "Exclude seen films" toggle). */
+  excludeSeen?: boolean
   limit?: number
 }
 
@@ -59,12 +61,13 @@ export async function fetchRecommendations(
  */
 export async function fetchExplanations(
   query: string,
-  opts: { limit?: number; allowGenres?: string[] } = {},
+  opts: { limit?: number; allowGenres?: string[]; excludeSeen?: boolean } = {},
   signal?: AbortSignal
 ): Promise<Record<string, string>> {
   const body: Record<string, unknown> = { query }
   if (opts.limit) body.limit = opts.limit
   if (opts.allowGenres && opts.allowGenres.length > 0) body.allowGenres = opts.allowGenres
+  if (opts.excludeSeen) body.excludeSeen = true
 
   const res = await fetch('/api/recommendations/explanations', {
     method: 'POST',

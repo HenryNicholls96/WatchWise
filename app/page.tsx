@@ -24,10 +24,10 @@ export default async function Home() {
           WatchWise
         </p>
         <h1 className="text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">
-          No more scrolling
+          No More Scrolling
         </h1>
         <p className="max-w-xl text-lg text-muted-foreground">
-          Type in what you&rsquo;re looking for and we&rsquo;ll find you a gem
+          Type in whatever you want &mdash; we&rsquo;ll find you a gem
         </p>
       </header>
 

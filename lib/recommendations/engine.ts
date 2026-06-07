@@ -105,6 +105,12 @@ export type RecommendationQuery = {
   maxRuntimeMinutes?: number
   excludeContentIds?: string[]
   /**
+   * When true (and the caller has a session), drop titles the user has marked seen (any SEEN_ACTIONS) from
+   * the results — the discovery "Exclude seen films" toggle. A HARD, explicit filter (never relaxed). Uses
+   * the same seen source as the alreadySeen stamp, loaded once.
+   */
+  excludeSeen?: boolean
+  /**
    * Genres to NOT exclude, even if parsed intent or onboarding defaults would have. Lets the UI relax a
    * specific soft genre exclusion (e.g. the user clicks the "Excluding: Romance" chip to add it back).
    * Case-insensitive. This can only BROADEN results — it never adds a hard filter — so it's safe to accept
@@ -273,13 +279,28 @@ export async function getRecommendations(
   )
   const retrieveMs = retrieveTimer()
 
+  // Load the user's SEEN set ONCE (among the retrieved candidates) — reused for BOTH the excludeSeen filter
+  // and the alreadySeen stamp below, so there's a single query and no duplicated seen-loading. Empty for
+  // anonymous callers or when neither use is needed. (stampSeen is resolved near the top of the pipeline.)
+  const excludeSeen = query.excludeSeen ?? false
+  const candidateIds = candidates.map((c) => c.content.id)
+  const seenIds =
+    query.userId && (excludeSeen || stampSeen)
+      ? await loadSeenContentIds(query.userId, candidateIds, deps.supabase, logger)
+      : new Set<string>()
+
+  // excludeSeen folds the seen ids into the hard exclusion list (filterByExclusions handles it).
+  const excludeContentIds = excludeSeen
+    ? [...new Set([...(query.excludeContentIds ?? []), ...seenIds])]
+    : query.excludeContentIds
+
   const filterInput = {
     candidates,
     platformSlugs,
     region,
     contentType,
     maxRuntimeMinutes,
-    excludeContentIds: query.excludeContentIds,
+    excludeContentIds,
     excludeGenres,
     protectContentIds: likedContentIds,
     originalLanguage,
@@ -338,17 +359,11 @@ export async function getRecommendations(
   }
   const explainMs = explainTimer()
 
-  // 6) Attach where-to-watch + the already-seen stamp. Both key off the final ids, so we run them in
-  //    parallel (one platform-availability query + one seen-set query). Seen lookup is fail-open and
-  //    skipped for anonymous-without-session callers (no userId) or when stampSeen is false.
+  // 6) Attach where-to-watch. The already-seen stamp reuses the seen set loaded once above (final ids are a
+  //    subset of the candidates we looked up), so there's no second seen query here.
   const offersTimer = startTimer()
   const finalIds = explained.map((r) => r.content.id)
-  const [offers, seenIds] = await Promise.all([
-    loadPlatformOffers(finalIds, platformSlugs, region, deps.supabase, logger),
-    stampSeen && query.userId
-      ? loadSeenContentIds(query.userId, finalIds, deps.supabase, logger)
-      : Promise.resolve(new Set<string>()),
-  ])
+  const offers = await loadPlatformOffers(finalIds, platformSlugs, region, deps.supabase, logger)
   const offersMs = offersTimer()
   const recommendations: Recommendation[] = explained.map((r) => ({
     ...r,

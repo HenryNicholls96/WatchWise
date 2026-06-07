@@ -35,6 +35,8 @@ const h = vi.hoisted(() => ({
   platformRows: [] as any[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   availability: [] as any[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  seen: [] as any[],
   inserts: [] as string[],
 }))
 
@@ -104,6 +106,8 @@ function fakeSupabase() {
           return h.platformRows
         case 'content_platforms':
           return h.availability
+        case 'user_content_interactions':
+          return h.seen
         default:
           return []
       }
@@ -171,6 +175,7 @@ beforeEach(() => {
   h.voyageEmbed.mockReset()
   h.claudeCreate.mockReset()
   h.inserts = []
+  h.seen = []
 
   // A signed-in user with one liked seed, a Netflix-only onboarding profile, and a catalog of three
   // series — two available on Netflix (C1, C2), one not (C3, which the platform gate must drop).
@@ -250,6 +255,23 @@ describe('authenticated recommendation journey', () => {
 
     // recordSession:false on the deferred re-run → no duplicate session row for an already-recorded search.
     expect(h.inserts).not.toContain('recommendation_sessions')
+  })
+
+  it('excludeSeen drops the user’s seen titles; otherwise alreadySeen stamps them (one shared seen source)', async () => {
+    h.seen = [{ content_id: C1 }] // the user has watched C1
+
+    // Toggle OFF: C1 + C2 both returned, C1 flagged alreadySeen (stamp reuses the seen lookup).
+    const off = await mainReq({ query: 'dark crime drama' })
+    const a = (await off.json()) as { count: number; recommendations: Array<{ content: { id: string }; alreadySeen: boolean }> }
+    expect(a.count).toBe(2)
+    expect(a.recommendations.find((r) => r.content.id === C1)?.alreadySeen).toBe(true)
+    expect(a.recommendations.find((r) => r.content.id === C2)?.alreadySeen).toBe(false)
+
+    // Toggle ON: C1 is excluded entirely → only C2 remains.
+    const on = await mainReq({ query: 'dark crime drama', excludeSeen: true })
+    const b = (await on.json()) as { count: number; recommendations: Array<{ content: { id: string } }> }
+    expect(b.count).toBe(1)
+    expect(b.recommendations.map((r) => r.content.id)).toEqual([C2])
   })
 
   it('an explicit per-request constraint overrides the onboarding default (precedence)', async () => {

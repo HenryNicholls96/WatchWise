@@ -54,6 +54,9 @@ const requestSchema = z
     contentType: z.enum(CONTENT_TYPES).optional(),
     maxRuntimeMinutes: z.number().int().positive().max(1_000).optional(),
     excludeContentIds: z.array(z.string().uuid()).max(200).optional(),
+    // Drop titles the user has marked seen (the "Exclude seen films" toggle). Server-resolved from the
+    // session's own seen log, so it can't leak or be forged into seeing others' data.
+    excludeSeen: z.boolean().optional(),
     // Soft genre exclusions the caller wants relaxed (the UI's "un-click this filter" action). Only broadens
     // results — never adds a hard filter — so it's safe to accept from the client.
     allowGenres: z.array(z.string().min(1).max(40)).max(20).optional(),
