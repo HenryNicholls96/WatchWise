@@ -52,7 +52,7 @@ export function CardFace({ title }: { title: SwipeTitle }) {
             <X className="h-3 w-3 text-rose-400" aria-hidden /> Pass
           </span>
           <span className="inline-flex items-center gap-1">
-            <EyeOff className="h-3 w-3 text-sky-400" aria-hidden /> Not Seen
+            <EyeOff className="h-3 w-3 text-zinc-300" aria-hidden /> Not Seen
           </span>
           <span className="inline-flex items-center gap-1">
             <Heart className="h-3 w-3 text-emerald-400" aria-hidden /> Like
@@ -125,7 +125,7 @@ export const SwipeCard = forwardRef<SwipeCardHandle, { title: SwipeTitle; onDeci
           <Stamp label="Pass" className="rotate-[18deg] border-rose-400 text-rose-400" />
         </motion.div>
         <motion.div style={{ opacity: skipOpacity }} className="absolute inset-x-0 top-6 flex justify-center">
-          <Stamp label="Not Seen" className="border-sky-400 text-sky-400" />
+          <Stamp label="Not Seen" className="border-zinc-400 text-zinc-300" />
         </motion.div>
       </motion.div>
     )

@@ -105,7 +105,7 @@ describe('forYouEmbedQuery', () => {
         ['comedy_feelgood', 0.62],
       ]),
     })
-    expect(q).toBe('Sci-Fi & Fantasy, Crime & Thriller, Comedy & Feel-Good')
+    expect(q).toBe('Sci-Fi & Fantasy, Crime & Thriller, Comedy')
   })
 
   it('caps at the top 3', () => {

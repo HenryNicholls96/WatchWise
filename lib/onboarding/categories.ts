@@ -42,19 +42,19 @@ export const SWIPE_CATEGORIES: readonly SwipeCategory[] = [
   },
   {
     id: 'comedy_feelgood',
-    label: 'Comedy & Feel-Good',
+    label: 'Comedy',
     blurb: 'Light, warm, easy to love.',
     genreMatchers: ['Comedy', 'Family', 'Music', 'Romance'],
   },
   {
     id: 'drama_prestige',
-    label: 'Drama & Prestige',
+    label: 'Drama',
     blurb: 'Character-driven, awards-bait, the heavy hitters.',
     genreMatchers: ['Drama', 'History', 'War'],
   },
   {
     id: 'action_adventure',
-    label: 'Action & Adventure',
+    label: 'Action',
     blurb: 'Momentum, spectacle, a ride.',
     genreMatchers: ['Action', 'Adventure', 'Action & Adventure', 'Western'],
   },

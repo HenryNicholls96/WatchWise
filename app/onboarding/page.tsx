@@ -9,7 +9,7 @@ export default async function OnboardingPage() {
   if (completed === true) redirect(DISCOVERY_PATH);
 
   return (
-    <main className="flex min-h-screen flex-1 flex-col">
+    <main className="flex w-full flex-1 flex-col">
       <OnboardingFlow />
     </main>
   );

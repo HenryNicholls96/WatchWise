@@ -65,69 +65,72 @@ export function OnboardingFlow() {
     complete.mutate({ swipes: swipesRef.current, platforms: answers.platforms, preferences: answers.preferences })
   }
 
-  return (
-    <div className="flex w-full flex-1 items-center justify-center px-4 py-10">
-      {/* Submitting / success overlay. */}
-      {(complete.isPending || complete.isSuccess) && (
-        <div className="flex flex-col items-center gap-3 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-foreground" />
-          <p className="text-lg font-semibold">Lining up your picks…</p>
-          <p className="text-sm text-muted-foreground">Reading your taste and finding the good stuff.</p>
-        </div>
-      )}
+  // Submitting / success overlay — full viewport, centered.
+  if (complete.isPending || complete.isSuccess) {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 px-4 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+        <p className="text-lg font-semibold">Lining up your picks…</p>
+        <p className="text-sm text-muted-foreground">Reading your taste and finding the good stuff.</p>
+      </div>
+    )
+  }
 
-      {!complete.isPending && !complete.isSuccess && (
-        <>
-          {step === 'welcome' && (
-            <WelcomeStep onStart={() => setStep('swipe')} disabled={deck.isError} />
-          )}
+  if (step === 'welcome') {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center px-4 py-10">
+        <WelcomeStep onStart={() => setStep('swipe')} disabled={deck.isError} />
+      </div>
+    )
+  }
 
-          {step === 'swipe' && (
-            <>
-              {deck.isLoading && (
-                <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                  <Loader2 className="h-7 w-7 animate-spin" />
-                  <p className="text-sm">Picking some titles…</p>
-                </div>
-              )}
-              {deck.isError && (
-                <div className="flex flex-col items-center gap-3 text-center">
-                  <p className="inline-flex items-center gap-2 font-medium text-destructive">
-                    <AlertCircle className="h-5 w-5" /> Couldn&rsquo;t load titles
-                  </p>
-                  <Button variant="outline" onClick={() => deck.refetch()}>
-                    Try again
-                  </Button>
-                </div>
-              )}
-              {deck.isSuccess &&
-                (deck.data.length === 0 || deck.data.every((c) => c.titles.length === 0) ? (
-                  <div className="flex flex-col items-center gap-3 text-center">
-                    <p className="text-muted-foreground">No titles to show right now.</p>
-                    <Button onClick={() => setStep('questions')}>Continue</Button>
-                  </div>
-                ) : (
-                  <CategorySwipeDeck categories={deck.data} onComplete={handleDeckComplete} />
-                ))}
-            </>
-          )}
-
-          {step === 'questions' && (
-            <div className="flex w-full flex-col items-center gap-4">
-              <FollowUpQuestions onSubmit={handleSubmit} submitting={complete.isPending} />
-              {complete.isError && (
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <p className="inline-flex items-center gap-2 text-sm text-destructive">
-                    <AlertCircle className="h-4 w-4" /> {complete.error.message}
-                  </p>
-                  <Button variant="ghost" onClick={() => router.replace('/')}>
-                    Continue anyway
-                  </Button>
-                </div>
-              )}
+  if (step === 'swipe') {
+    // Fixed-height viewport box (dvh) with safe-area padding, so the deck's flex layout keeps the card +
+    // action buttons fully on-screen without scrolling, on every phone.
+    return (
+      <div className="flex h-[100dvh] w-full flex-col px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {deck.isLoading && (
+          <div className="m-auto flex flex-col items-center gap-3 text-muted-foreground">
+            <Loader2 className="h-7 w-7 animate-spin" />
+            <p className="text-sm">Picking some titles…</p>
+          </div>
+        )}
+        {deck.isError && (
+          <div className="m-auto flex flex-col items-center gap-3 text-center">
+            <p className="inline-flex items-center gap-2 font-medium text-destructive">
+              <AlertCircle className="h-5 w-5" /> Couldn&rsquo;t load titles
+            </p>
+            <Button variant="outline" onClick={() => deck.refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {deck.isSuccess &&
+          (deck.data.length === 0 || deck.data.every((c) => c.titles.length === 0) ? (
+            <div className="m-auto flex flex-col items-center gap-3 text-center">
+              <p className="text-muted-foreground">No titles to show right now.</p>
+              <Button onClick={() => setStep('questions')}>Continue</Button>
             </div>
-          )}
-        </>
+          ) : (
+            <CategorySwipeDeck categories={deck.data} onComplete={handleDeckComplete} />
+          ))}
+      </div>
+    )
+  }
+
+  // step === 'questions'
+  return (
+    <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center gap-4 px-4 py-10">
+      <FollowUpQuestions onSubmit={handleSubmit} submitting={complete.isPending} />
+      {complete.isError && (
+        <div className="flex flex-col items-center gap-2 text-center">
+          <p className="inline-flex items-center gap-2 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4" /> {complete.error.message}
+          </p>
+          <Button variant="ghost" onClick={() => router.replace('/')}>
+            Continue anyway
+          </Button>
+        </div>
       )}
     </div>
   )

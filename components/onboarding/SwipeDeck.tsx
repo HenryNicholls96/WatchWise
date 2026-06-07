@@ -1,7 +1,10 @@
 // The 5×10 category swipe deck: walks the user through each category's 10 titles in turn, with a clear
 // animated section header, overall "x / 50" progress, and per-category pips. Each card supports three
 // actions — Like / Pass / Not Seen — collected with the category + action so affinities can be computed.
-// Reuses SwipeCard's drag physics; only the orchestration around it is category-aware.
+//
+// Responsive: this is a FULL-HEIGHT flex column (the parent gives it a 100dvh box). The card area is
+// flex-1 and the card sizes to the AVAILABLE HEIGHT (h-full + aspect-[2/3]), so the action buttons are
+// always on-screen without scrolling — from iPhone SE up to large Androids. Reuses SwipeCard's drag physics.
 
 'use client'
 
@@ -50,7 +53,6 @@ export function CategorySwipeDeck({
     const current = titles[cardIndex]
     if (current) swipes.current.push(toSwipe(current, category!.id, decision))
 
-    // Next card in this category, else advance to the next category, else finish.
     if (cardIndex + 1 < titles.length) {
       setCardIndex(cardIndex + 1)
     } else if (catIndex + 1 < categories.length) {
@@ -64,7 +66,7 @@ export function CategorySwipeDeck({
   if (!category || !top) return null
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-col gap-4">
+    <div className="mx-auto flex h-full w-full max-w-sm flex-col gap-3">
       {/* Progress: count + a thin bar + one pip per category (filled up to the current section). */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
@@ -90,7 +92,7 @@ export function CategorySwipeDeck({
         </div>
       </div>
 
-      {/* Animated category header — crossfades on each section change, segmenting the 50 swipes. */}
+      {/* Animated category header — crossfades on each section change. Bigger name for visual weight; no blurb. */}
       <AnimatePresence mode="wait">
         <motion.div
           key={category.id}
@@ -103,21 +105,25 @@ export function CategorySwipeDeck({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
             {catIndex + 1} of {categories.length}
           </p>
-          <h2 className="text-xl font-bold tracking-tight">{category.label}</h2>
-          <p className="text-sm text-muted-foreground">{category.blurb}</p>
+          <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{category.label}</h2>
         </motion.div>
       </AnimatePresence>
 
-      <div className="relative mx-auto aspect-[2/3] w-full">
-        {behind && (
-          <div className="absolute inset-0 scale-[0.96] opacity-80">
-            <CardFace title={behind} />
-          </div>
-        )}
-        <SwipeCard key={top.id} ref={cardRef} title={top} onDecision={handleDecision} />
+      {/* Card area: flex-1 + min-h-0 so the card sizes to AVAILABLE HEIGHT (not width) — buttons stay
+          visible. max-h caps it at the true 2/3 of max-w-sm (24rem × 1.5 = 36rem) so on tall phones it
+          stays a proper poster (centered) instead of stretching; on short phones h-full shrinks it. */}
+      <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+        <div className="relative aspect-[2/3] h-full max-h-[36rem]">
+          {behind && (
+            <div className="absolute inset-0 scale-[0.96] opacity-80">
+              <CardFace title={behind} />
+            </div>
+          )}
+          <SwipeCard key={top.id} ref={cardRef} title={top} onDecision={handleDecision} />
+        </div>
       </div>
 
-      <div className="flex items-center justify-center gap-5">
+      <div className="flex shrink-0 items-center justify-center gap-5">
         <button
           type="button"
           aria-label="Pass"
@@ -130,7 +136,7 @@ export function CategorySwipeDeck({
           type="button"
           aria-label="Not Seen"
           onClick={() => cardRef.current?.swipe('skip')}
-          className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-sky-300 text-sky-500 transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-zinc-300 text-zinc-500 transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
         >
           <EyeOff className="h-5 w-5" />
         </button>

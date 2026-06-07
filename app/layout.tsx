@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -19,6 +19,14 @@ export const metadata: Metadata = {
   title: "WatchWise — Find something to watch",
   description:
     "Tell WatchWise what you're in the mood for and get a handful of explained, ready-to-watch recommendations.",
+};
+
+// viewportFit: 'cover' lets the app paint under the notch/home indicator so we can use env(safe-area-inset-*)
+// padding (critical for the full-height onboarding swipe screen on modern phones).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
