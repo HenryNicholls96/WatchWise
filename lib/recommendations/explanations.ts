@@ -322,9 +322,13 @@ const responseSchema = z.array(z.object({ content_id: z.string(), explanation: z
 
 const SYSTEM_PROMPT =
   'You write recommendation explanations for a calm, intelligent streaming app that helps people decide what to watch. ' +
-  'For each title, write ONE warm, specific sentence (max ~30 words) on why it fits the user\'s request and taste. ' +
-  'Reference concrete signals (the query, genres/mood, or a title they loved) — never generic filler like "a great show". ' +
-  'If a title is marked low-confidence, hedge honestly ("might appeal" rather than overpromising). ' +
+  'For each title, write ONE warm, specific sentence (max ~35 words) on why THIS title fits the request and taste. ' +
+  'Anchor it in something concrete and distinctive about the title — a specific plot hook, premise, tone, or what sets ' +
+  'it apart — drawn from its plot/genres/mood, not vague praise. Connect that to the user\'s query (or a title they loved) ' +
+  'so the reason feels tailored, not generic. ' +
+  'BANNED as filler: "a great show/film", "a strong match", "you\'ll love it", "perfect for you", "a must-watch", and ' +
+  'restating the genre alone. Vary how each sentence opens — do not start them all the same way. ' +
+  'If a title is marked low-confidence, hedge honestly ("might appeal", "could work if…") rather than overpromising. ' +
   'Respond ONLY with a JSON array: [{"content_id": "...", "explanation": "..."}].'
 
 /**

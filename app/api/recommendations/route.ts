@@ -49,6 +49,9 @@ const requestSchema = z.object({
   contentType: z.enum(CONTENT_TYPES).optional(),
   maxRuntimeMinutes: z.number().int().positive().max(1_000).optional(),
   excludeContentIds: z.array(z.string().uuid()).max(200).optional(),
+  // Soft genre exclusions the caller wants relaxed (the UI's "un-click this filter" action). Only broadens
+  // results — never adds a hard filter — so it's safe to accept from the client.
+  allowGenres: z.array(z.string().min(1).max(40)).max(20).optional(),
   limit: z.number().int().positive().max(50).optional(),
 })
 

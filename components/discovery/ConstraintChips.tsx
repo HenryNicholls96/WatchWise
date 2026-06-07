@@ -1,8 +1,10 @@
-// Read-only chips that surface the constraints the engine applied to a search, so the filtering is
-// transparent to the user (e.g. "Only movies", "On Netflix", "Excluding: Horror", "Under 2 hours").
-// Positives use a filled (secondary) badge; negatives use an outline badge so they read distinctly.
+// Chips that surface the constraints the engine applied to a search, so the filtering is transparent to
+// the user (e.g. "Only movies", "On Netflix", "Excluding: Horror", "Under 2 hours"). Positives use a
+// filled (secondary) badge; negatives use an outline badge so they read distinctly. Excluded-genre chips
+// are individually REMOVABLE when onRelaxGenre is provided — clicking one adds that genre back to broaden
+// the search.
 
-import { Ban, Check } from 'lucide-react'
+import { Ban, Check, X } from 'lucide-react'
 import type { AppliedConstraints } from '@/lib/api/recommendations'
 import { Badge } from '@/components/ui/badge'
 
@@ -49,7 +51,7 @@ function formatRuntime(minutes: number): string {
   return `${minutes} min`
 }
 
-type Chip = { label: string; kind: 'include' | 'exclude' }
+type Chip = { label: string; kind: 'include' | 'exclude'; genre?: string }
 
 // Total platforms we carry — a "limited to all of them" set isn't a real narrowing, so we don't chip it.
 const ALL_PLATFORMS = 3
@@ -70,14 +72,22 @@ function buildChips(c: AppliedConstraints): Chip[] {
   if (c.originalLanguage) {
     chips.push({ label: `In ${languageName(c.originalLanguage)}`, kind: 'include' })
   }
-  if (c.excludeGenres.length > 0) {
-    chips.push({ label: `Excluding: ${c.excludeGenres.join(', ')}`, kind: 'exclude' })
+  // One chip per excluded genre, each carrying its genre so it can be individually removed.
+  for (const g of c.excludeGenres) {
+    chips.push({ label: `Excluding: ${g}`, kind: 'exclude', genre: g })
   }
 
   return chips
 }
 
-export function ConstraintChips({ constraints }: { constraints?: AppliedConstraints }) {
+export function ConstraintChips({
+  constraints,
+  onRelaxGenre,
+}: {
+  constraints?: AppliedConstraints
+  /** When provided, excluded-genre chips become clickable — clicking one relaxes that exclusion. */
+  onRelaxGenre?: (genre: string) => void
+}) {
   if (!constraints) return null
   const chips = buildChips(constraints)
   if (chips.length === 0 && !constraints.genreExclusionsRelaxed) return null
@@ -85,20 +95,47 @@ export function ConstraintChips({ constraints }: { constraints?: AppliedConstrai
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs font-medium text-muted-foreground">Applied filters</span>
-      {chips.map((chip) => (
-        <Badge
-          key={`${chip.kind}:${chip.label}`}
-          variant={chip.kind === 'include' ? 'secondary' : 'outline'}
-          className="gap-1 font-normal"
-        >
-          {chip.kind === 'include' ? (
-            <Check className="h-3 w-3" aria-hidden />
-          ) : (
-            <Ban className="h-3 w-3" aria-hidden />
-          )}
-          {chip.label}
-        </Badge>
-      ))}
+      {chips.map((chip) => {
+        const key = `${chip.kind}:${chip.label}`
+        const removable = chip.kind === 'exclude' && chip.genre != null && onRelaxGenre != null
+
+        if (removable) {
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onRelaxGenre!(chip.genre!)}
+              title={`Add ${chip.genre} back to broaden your results`}
+              aria-label={`Remove filter excluding ${chip.genre} and broaden results`}
+              className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Badge
+                variant="outline"
+                className="cursor-pointer gap-1 font-normal transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Ban className="h-3 w-3" aria-hidden />
+                {chip.label}
+                <X className="h-3 w-3 opacity-60" aria-hidden />
+              </Badge>
+            </button>
+          )
+        }
+
+        return (
+          <Badge
+            key={key}
+            variant={chip.kind === 'include' ? 'secondary' : 'outline'}
+            className="gap-1 font-normal"
+          >
+            {chip.kind === 'include' ? (
+              <Check className="h-3 w-3" aria-hidden />
+            ) : (
+              <Ban className="h-3 w-3" aria-hidden />
+            )}
+            {chip.label}
+          </Badge>
+        )
+      })}
       {constraints.genreExclusionsRelaxed && (
         <span className="text-xs text-muted-foreground">
           (relaxed genre filter to find matches)

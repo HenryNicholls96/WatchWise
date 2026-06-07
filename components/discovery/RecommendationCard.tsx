@@ -1,8 +1,8 @@
 // A single recommendation card: poster, title with platform icons top-right, a one-line gist of
-// what it's about, and a ratings footer (WatchWise star rating + a blended Rating). Clicking
-// (or Enter/Space) opens a detail dialog. The WatchWise rating and Critics score use the exact same
-// components in the card and the modal, so their wording/format always match. The Dialog is
-// controlled (no DialogTrigger asChild) so we don't depend on Card forwarding refs to a Radix Slot.
+// what it's about, and a ratings footer (WatchWise "Match" score + a blended "Critics" score). Clicking
+// (or Enter/Space) opens a detail dialog. The Match and Critics scores use the exact same components in
+// the card and the modal, so their wording/format always match. The Dialog is controlled (no
+// DialogTrigger asChild) so we don't depend on Card forwarding refs to a Radix Slot.
 
 'use client'
 
@@ -67,11 +67,11 @@ function ratingScore(content: Recommendation['content']): number | null {
 
 const SOURCE_NAMES: Record<string, string> = { imdb: 'IMDb', metacritic: 'Metacritic', tmdb: 'TMDb' }
 
-/** Tooltip text listing which sources the blended rating came from. */
+/** Tooltip text listing which sources the blended Critics score came from. */
 function ratingSourcesLabel(content: Recommendation['content']): string {
   const contributing = content.ratingSources?.contributing
   const keys = contributing && contributing.length > 0 ? contributing : ['tmdb']
-  return `Rating · blended from ${keys.map((s) => SOURCE_NAMES[s] ?? s).join(', ')}`
+  return `Critics · blended from ${keys.map((s) => SOURCE_NAMES[s] ?? s).join(', ')}`
 }
 
 function tagSet(content: Recommendation['content']): Set<string> {
@@ -118,50 +118,44 @@ function Poster({ url, title, className }: { url: string | null; title: string; 
   )
 }
 
-/** Five stars with fractional fill, driven by a 0–5 value. */
-function StarRating({ value, sizeClass = 'h-3.5 w-3.5' }: { value: number; sizeClass?: string }) {
-  return (
-    <span className="inline-flex items-center gap-0.5" role="img" aria-label={`${value} out of 5 stars`}>
-      {[0, 1, 2, 3, 4].map((i) => {
-        const fill = Math.max(0, Math.min(1, value - i))
-        return (
-          <span key={i} className={cn('relative inline-block', sizeClass)}>
-            <Star className={cn('absolute inset-0', sizeClass, 'text-muted-foreground/30')} />
-            {fill > 0 && (
-              <span className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
-                <Star className={cn(sizeClass, 'fill-amber-400 text-amber-400')} />
-              </span>
-            )}
-          </span>
-        )
-      })}
-    </span>
-  )
-}
-
-/** Shared WatchWise rating lockup: "W" mark + star rating. Used identically in card and modal. */
+/**
+ * Shared WatchWise "Match" lockup: "W" mark + "Match" label + a numeric star rating (e.g. "4.5 ★"), so
+ * it's obvious the number reflects fit-for-you, not an external review score. Used identically in card
+ * and modal. The value is the rank-based 0–5 strength from rankStars (shown to one decimal).
+ */
 function WatchWiseRating({
   stars,
   markClassName = 'h-4 w-4 text-[10px]',
-  starClass,
+  starClass = 'h-3.5 w-3.5',
 }: {
   stars: number
   markClassName?: string
   starClass?: string
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5" title="WatchWise Recommendation Rating">
+    <span
+      className="inline-flex items-center gap-1.5"
+      title="WatchWise Match — how well this fits your taste and search"
+    >
       <WatchWiseMark className={markClassName} />
-      <StarRating value={stars} sizeClass={starClass} />
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Match</span>
+      <span
+        className="inline-flex items-center gap-0.5 font-bold leading-none tabular-nums"
+        role="img"
+        aria-label={`Match ${stars.toFixed(1)} out of 5`}
+      >
+        {stars.toFixed(1)}
+        <Star className={cn(starClass, 'fill-amber-400 text-amber-400')} aria-hidden />
+      </span>
     </span>
   )
 }
 
-/** Shared blended "Rating" lockup. Used identically in card and modal. */
+/** Shared blended "Critics" lockup (IMDb/Metacritic/TMDb). Used identically in card and modal. */
 function RatingScore({ value, sourcesLabel }: { value: number; sourcesLabel: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 leading-none" title={sourcesLabel}>
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rating</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Critics</span>
       <span className="font-bold">{value}%</span>
     </span>
   )
@@ -235,8 +229,8 @@ export function RecommendationCard({
             <DialogDescription>{metaLine(content)}</DialogDescription>
           </DialogHeader>
 
-          {/* The right column is sized to the poster's height so "Where to watch" sits at its top and the
-              ratings sit at its bottom — both visually anchored to the poster. */}
+          {/* The right column is sized to the poster's height: platform icons sit at its top-right (anchored
+              to the poster's top edge) and the ratings sit at its bottom. */}
           <div className="flex gap-4">
             <Poster url={content.posterUrl} title={content.title} className="h-48 w-32 shrink-0" />
             <div className="flex h-48 min-w-0 flex-1 flex-col gap-2">
@@ -253,11 +247,8 @@ export function RecommendationCard({
                   <span />
                 )}
                 {platforms.length > 0 && (
-                  <div className="flex shrink-0 flex-col items-end gap-1 rounded-lg border bg-muted/30 px-2 py-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Where to watch
-                    </span>
-                    <PlatformIconRow platforms={platforms} size="xs" />
+                  <div className="shrink-0">
+                    <PlatformIconRow platforms={platforms} size="sm" />
                   </div>
                 )}
               </div>

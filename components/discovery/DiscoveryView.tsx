@@ -22,32 +22,46 @@ const EXAMPLES = [
   'gripping true-crime documentary',
 ]
 
+type SearchVars = { query: string; allowGenres: string[] }
+
 export function DiscoveryView() {
   const [input, setInput] = useState('')
 
   const mutation = useMutation({
-    mutationFn: (query: string) => fetchRecommendations({ query, limit: RESULT_LIMIT }),
+    mutationFn: (vars: SearchVars) =>
+      fetchRecommendations({ query: vars.query, limit: RESULT_LIMIT, allowGenres: vars.allowGenres }),
   })
 
   // Explanations are DEFERRED (modal-only): once the grid is here, prefetch them in the background so a
-  // card's "Why This One?" is usually ready by the time it's opened. Keyed by the searched query, so it
-  // aligns with the explanation cache and refetches only on a new search.
-  const searchedQuery = mutation.variables
+  // card's "Why This One?" is usually ready by the time it's opened. Keyed by the searched query AND the
+  // relaxed-genre set, so it aligns with the grid's result set and refetches when either changes.
+  const searchedQuery = mutation.variables?.query
+  const searchedAllowGenres = mutation.variables?.allowGenres ?? []
   const hasResults = (mutation.data?.recommendations.length ?? 0) > 0
   const explanationsQuery = useQuery({
-    queryKey: ['explanations', searchedQuery],
+    queryKey: ['explanations', searchedQuery, [...searchedAllowGenres].sort().join(',')],
     enabled: Boolean(searchedQuery && hasResults),
     staleTime: Infinity,
-    // Sends only the query — the server re-runs its own pipeline; no client ranking data is passed.
-    queryFn: () => fetchExplanations(searchedQuery!, RESULT_LIMIT),
+    // Sends only the search intent (query + relaxed filters) — the server re-runs its own pipeline; no
+    // client ranking data is passed. allowGenres must match the grid call so the result sets align.
+    queryFn: () => fetchExplanations(searchedQuery!, { limit: RESULT_LIMIT, allowGenres: searchedAllowGenres }),
   })
   const explanationsById = explanationsQuery.data ?? {}
 
+  // A brand-new search clears any relaxed-genre choices from the previous one.
   function runSearch(query: string) {
     const trimmed = query.trim()
     if (!trimmed || mutation.isPending) return
     setInput(trimmed)
-    mutation.mutate(trimmed)
+    mutation.mutate({ query: trimmed, allowGenres: [] })
+  }
+
+  // Re-run the SAME search with one more soft genre exclusion relaxed (the user clicked its chip).
+  function relaxGenre(genre: string) {
+    const query = mutation.variables?.query
+    if (!query || mutation.isPending) return
+    const allowGenres = [...new Set([...searchedAllowGenres, genre])]
+    mutation.mutate({ query, allowGenres })
   }
 
   return (
@@ -118,9 +132,9 @@ export function DiscoveryView() {
         ) : (
           <div className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">
-              {mutation.data.count} {mutation.data.count === 1 ? 'pick' : 'picks'} for “{input}”
+              {mutation.data.count} {mutation.data.count === 1 ? 'pick' : 'picks'} for “{searchedQuery}”
             </p>
-            <ConstraintChips constraints={mutation.data.appliedConstraints} />
+            <ConstraintChips constraints={mutation.data.appliedConstraints} onRelaxGenre={relaxGenre} />
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {mutation.data.recommendations.map((rec) => (
                 <RecommendationCard

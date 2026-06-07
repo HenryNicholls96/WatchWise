@@ -53,6 +53,8 @@ const requestSchema = z.object({
   region: z.string().min(1).max(10).optional(),
   contentType: z.enum(CONTENT_TYPES).optional(),
   maxRuntimeMinutes: z.number().int().positive().max(1_000).optional(),
+  // Must mirror /api/recommendations so the re-run produces the SAME result set the grid showed.
+  allowGenres: z.array(z.string().min(1).max(40)).max(20).optional(),
   limit: z.number().int().positive().max(50).optional(),
 })
 

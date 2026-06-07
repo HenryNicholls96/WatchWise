@@ -10,6 +10,8 @@ export type RecommendationsRequest = {
   query: string
   platformSlugs?: string[]
   contentType?: 'movie' | 'series'
+  /** Soft genre exclusions to relax (the UI's removable "Excluding: X" chips). Only broadens results. */
+  allowGenres?: string[]
   limit?: number
 }
 
@@ -45,18 +47,23 @@ export async function fetchRecommendations(
 
 /**
  * Fetches deferred "why this" explanations (the detail-modal text) for the same search. Sends only the
- * query + limit — NO client ranking data; the server re-runs its own authoritative pipeline. Returns a
- * map of contentId → explanation. Used as a background prefetch after the grid renders.
+ * validated search intent (query + limit + any relaxed genre filters) — NO client ranking data; the
+ * server re-runs its own authoritative pipeline. allowGenres MUST match what the grid call used, so the
+ * re-run produces the same result set. Returns a map of contentId → explanation.
  */
 export async function fetchExplanations(
   query: string,
-  limit?: number,
+  opts: { limit?: number; allowGenres?: string[] } = {},
   signal?: AbortSignal
 ): Promise<Record<string, string>> {
+  const body: Record<string, unknown> = { query }
+  if (opts.limit) body.limit = opts.limit
+  if (opts.allowGenres && opts.allowGenres.length > 0) body.allowGenres = opts.allowGenres
+
   const res = await fetch('/api/recommendations/explanations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(limit ? { query, limit } : { query }),
+    body: JSON.stringify(body),
     signal,
   })
 

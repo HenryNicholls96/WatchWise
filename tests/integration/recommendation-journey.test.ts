@@ -191,6 +191,18 @@ describe('recommendation → deferred explanation journey', () => {
     expect(expl.journeyId).toBe(rec.journeyId)
   })
 
+  it('allowGenres relaxes a query-driven soft genre exclusion (the removable filter chip)', async () => {
+    // "without horror" → the engine applies a soft Horror exclusion, surfaced as an Applied-filters chip.
+    const excluded = await mainReq({ query: 'dark crime drama without horror' })
+    expect(excluded.status).toBe(200)
+    expect((await excluded.json()).appliedConstraints.excludeGenres).toEqual(['Horror'])
+
+    // Clicking the chip re-runs with allowGenres:['Horror'] → the exclusion is dropped (broadens results).
+    const relaxed = await mainReq({ query: 'dark crime drama without horror', allowGenres: ['Horror'] })
+    expect(relaxed.status).toBe(200)
+    expect((await relaxed.json()).appliedConstraints.excludeGenres).toEqual([])
+  })
+
   it('explanations_llm flag off → explanation route skips the LLM and serves deterministic fallbacks', async () => {
     vi.stubEnv('FLAG_EXPLANATIONS_LLM', 'off') // emergency kill switch
     claudeSucceeds() // would be used if the flag were on

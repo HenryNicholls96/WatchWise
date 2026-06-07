@@ -88,6 +88,13 @@ export type RecommendationQuery = {
   contentType?: ContentType
   maxRuntimeMinutes?: number
   excludeContentIds?: string[]
+  /**
+   * Genres to NOT exclude, even if parsed intent or onboarding defaults would have. Lets the UI relax a
+   * specific soft genre exclusion (e.g. the user clicks the "Excluding: Romance" chip to add it back).
+   * Case-insensitive. This can only BROADEN results — it never adds a hard filter — so it's safe to accept
+   * from the client.
+   */
+  allowGenres?: string[]
   /** Final number of recommendations to return. Defaults to 8, capped at 12. */
   limit?: number
   /**
@@ -209,10 +216,14 @@ export async function getRecommendations(
   const maxRuntimeMinutes = query.maxRuntimeMinutes ?? intent.maxRuntimeMinutes ?? userDefaults.maxRuntimeMinutes
   const originalLanguage = intent.originalLanguage
 
-  // Genre exclusions combine this-session negatives with the onboarding avoid-list (deduped). This is a
-  // SOFT exclusion: it's relaxed below if it would empty results, and (via protectContentIds) it never
+  // Genre exclusions combine this-session negatives with the onboarding avoid-list (deduped), minus any
+  // the caller explicitly allowed back in (allowGenres — the UI's "un-click this filter" action). This is
+  // a SOFT exclusion: it's relaxed below if it would empty results, and (via protectContentIds) it never
   // hides a title the user explicitly liked.
-  const excludeGenres = [...new Set([...intent.excludeGenres, ...(userDefaults.excludeGenres ?? [])])]
+  const allowGenres = new Set((query.allowGenres ?? []).map((g) => g.trim().toLowerCase()))
+  const excludeGenres = [...new Set([...intent.excludeGenres, ...(userDefaults.excludeGenres ?? [])])].filter(
+    (g) => !allowGenres.has(g.trim().toLowerCase())
+  )
   const likedContentIds = tasteSeeds.filter((s) => s.sentiment !== 'disliked').map((s) => s.content.id)
 
   // 2) Retrieve (cleaned query) → 3) hard-filter (positive + negative constraints). Each stage is
