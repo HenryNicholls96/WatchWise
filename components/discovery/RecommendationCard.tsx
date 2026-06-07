@@ -166,6 +166,8 @@ export function RecommendationCard({
   siblings,
   explanation,
   explanationLoading = false,
+  onOpen,
+  fallbackExplanation,
 }: {
   recommendation: Recommendation
   siblings: Recommendation[]
@@ -173,10 +175,20 @@ export function RecommendationCard({
   explanation?: string
   /** True while the explanation prefetch is still in flight for this card. */
   explanationLoading?: boolean
+  /** Fired once when the detail modal is opened — used for engagement telemetry (e.g. the For-You rail). */
+  onOpen?: () => void
+  /** Copy shown in the modal when there's no LLM explanation (e.g. For-You cards, which skip the prefetch). */
+  fallbackExplanation?: string
 }) {
   const [open, setOpen] = useState(false)
   const { content, confidence, platforms } = recommendation
   const whyText = explanation && explanation.trim() ? explanation : null
+  const fallbackWhy = fallbackExplanation ?? 'A strong match for what you asked for.'
+
+  function openDetail() {
+    setOpen(true)
+    onOpen?.()
+  }
   const similar = pickSimilar(recommendation, siblings)
   const rank = Math.max(0, siblings.findIndex((s) => s.content.id === content.id))
   const stars = rankStars(rank, siblings.length)
@@ -189,11 +201,11 @@ export function RecommendationCard({
         role="button"
         tabIndex={0}
         aria-label={`View details for ${content.title}`}
-        onClick={() => setOpen(true)}
+        onClick={openDetail}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            setOpen(true)
+            openDetail()
           }
         }}
         className="group flex h-full cursor-pointer flex-row gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -267,7 +279,7 @@ export function RecommendationCard({
             ) : explanationLoading ? (
               <p className="text-sm italic leading-relaxed text-muted-foreground/70">Thinking about why this fits…</p>
             ) : (
-              <p className="text-sm leading-relaxed text-muted-foreground">A strong match for what you asked for.</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">{fallbackWhy}</p>
             )}
           </section>
 

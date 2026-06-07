@@ -10,6 +10,7 @@ import { fetchExplanations, fetchRecommendations } from '@/lib/api/recommendatio
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConstraintChips } from '@/components/discovery/ConstraintChips'
+import { ForYouRail } from '@/components/discovery/ForYouRail'
 import { RecommendationCard } from '@/components/discovery/RecommendationCard'
 import { RecommendationSkeletonGrid } from '@/components/discovery/RecommendationSkeleton'
 
@@ -89,21 +90,25 @@ export function DiscoveryView() {
         </Button>
       </form>
 
+      {/* Idle state: the personalized For-You rail is the hero; example searches are a quiet secondary row. */}
       {mutation.isIdle && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <Sparkles className="h-4 w-4" /> Try:
-          </span>
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex}
-              type="button"
-              onClick={() => runSearch(ex)}
-              className="rounded-full border px-3 py-1 text-foreground/80 transition-colors hover:bg-accent"
-            >
-              {ex}
-            </button>
-          ))}
+        <div className="flex flex-col gap-8">
+          <ForYouRail />
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <Sparkles className="h-4 w-4" /> Or search for something specific:
+            </span>
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => runSearch(ex)}
+                className="rounded-full border px-3 py-1 text-foreground/80 transition-colors hover:bg-accent"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

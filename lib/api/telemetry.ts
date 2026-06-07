@@ -1,9 +1,12 @@
 // Fire-and-forget client telemetry. Uses sendBeacon when available (survives unload/navigation), falling
 // back to fetch+keepalive. Never throws and never blocks the UI — telemetry must be invisible to the user.
 
-export type ClientUxEvent = 'banner_shown' | 'banner_dismissed'
+export type ClientUxEvent = 'banner_shown' | 'banner_dismissed' | 'foryou_shown' | 'foryou_card_opened'
 
-export function trackEvent(event: ClientUxEvent, opts: { eventId?: string; surface?: string } = {}): void {
+export function trackEvent(
+  event: ClientUxEvent,
+  opts: { eventId?: string; surface?: string; personalized?: boolean; count?: number } = {}
+): void {
   try {
     const body = JSON.stringify({ event, ...opts })
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {

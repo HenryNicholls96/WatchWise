@@ -151,9 +151,10 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     emit({ journeyId, outcome: 'ok', pipeline: metrics, flags })
 
-    // Note: metrics are logged, never returned to the client.
+    // Note: metrics are logged, never returned to the client — except `personalized`, a single boolean the
+    // For-You rail needs to title itself honestly (taste-shaped vs. cold-start popular fallback).
     return NextResponse.json(
-      { count: recommendations.length, recommendations, appliedConstraints },
+      { count: recommendations.length, recommendations, appliedConstraints, personalized: metrics.personalization.hasTasteProfile },
       { headers: { 'x-request-id': requestId } }
     )
   } catch (err) {

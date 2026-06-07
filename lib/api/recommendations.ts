@@ -7,7 +7,10 @@ import type { AppliedConstraints, Recommendation } from '@/lib/recommendations/e
 export type { AppliedConstraints, Recommendation }
 
 export type RecommendationsRequest = {
-  query: string
+  /** Required for 'search'; omit for 'for-you' (no user query). */
+  query?: string
+  /** 'search' (default) embeds the query; 'for-you' embeds a taste-derived query (no user text). */
+  recommendationMode?: 'search' | 'for-you'
   platformSlugs?: string[]
   contentType?: 'movie' | 'series'
   /** Soft genre exclusions to relax (the UI's removable "Excluding: X" chips). Only broadens results. */
@@ -20,6 +23,9 @@ export type RecommendationsResponse = {
   recommendations: Recommendation[]
   /** Constraints the engine applied (for showing intent chips in the UI). */
   appliedConstraints: AppliedConstraints
+  /** True when these results were shaped by the user's taste profile (vs. a cold-start popular fallback).
+   *  Lets the For-You rail title itself honestly. */
+  personalized: boolean
 }
 
 /** Calls the recommendations endpoint, surfacing the server's friendly error message on failure. */

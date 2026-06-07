@@ -20,7 +20,7 @@ const RATE_WINDOW_MS = 60_000
 const RATE_LIMIT = 60
 
 // Closed vocabulary of client UX events we accept. Extend deliberately.
-const CLIENT_EVENTS = ['banner_shown', 'banner_dismissed'] as const
+const CLIENT_EVENTS = ['banner_shown', 'banner_dismissed', 'foryou_shown', 'foryou_card_opened'] as const
 
 const telemetrySchema = z.object({
   event: z.enum(CLIENT_EVENTS),
@@ -28,6 +28,9 @@ const telemetrySchema = z.object({
   eventId: z.string().max(64).optional(),
   /** Where the event originated, for filtering. */
   surface: z.string().max(48).optional(),
+  /** Optional small numeric/boolean dimensions (e.g. for-you: personalized + count). */
+  personalized: z.boolean().optional(),
+  count: z.number().int().min(0).max(50).optional(),
 })
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -51,7 +54,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
     }
-    const { event, eventId, surface } = parsed.data
+    const { event, eventId, surface, personalized, count } = parsed.data
 
     // Same structured-event + release-stamping convention as the recommendation events.
     logger.info(event, {
@@ -59,6 +62,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       requestId,
       eventId: eventId ?? '',
       surface: surface ?? 'unknown',
+      ...(personalized !== undefined ? { personalized } : {}),
+      ...(count !== undefined ? { count } : {}),
       release: getCurrentRelease(),
     })
 
