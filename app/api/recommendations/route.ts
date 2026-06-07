@@ -28,7 +28,7 @@ import {
 import { createSupabaseExplanationCache } from '@/lib/recommendations/explanation-cache'
 import { EngineError, getRecommendations } from '@/lib/recommendations/engine'
 import { evaluateAllFlags } from '@/lib/flags'
-import { captureException } from '@/lib/utils/error-reporting'
+import { captureException, flushErrorReporting } from '@/lib/utils/error-reporting'
 import { type RecommendationMetrics, emitRecommendationMetrics, getCurrentRelease, makeJourneyId, startTimer } from '@/lib/utils/observability'
 
 // node:crypto (hashQuery) + @supabase/ssr cookies require the Node runtime, not Edge.
@@ -144,6 +144,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     // Report unexpected/upstream failures (skip plain bad-input, which is a client error, not a bug).
     if (errorCode !== 'INVALID_INPUT') {
       captureException(err, { route: 'POST /api/recommendations', requestId, journeyId, errorCode })
+      // Serverless freezes the instance after the response; flush so the event isn't lost.
+      await flushErrorReporting()
     }
     return toErrorResponse(err, logger, requestId)
   }

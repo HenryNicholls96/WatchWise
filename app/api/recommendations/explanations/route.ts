@@ -33,7 +33,7 @@ import {
 import { createSupabaseExplanationCache } from '@/lib/recommendations/explanation-cache'
 import { EngineError, getRecommendations } from '@/lib/recommendations/engine'
 import { evaluateAllFlags } from '@/lib/flags'
-import { captureException } from '@/lib/utils/error-reporting'
+import { captureException, flushErrorReporting } from '@/lib/utils/error-reporting'
 import { type ExplanationRequestMetrics, emitExplanationMetrics, getCurrentRelease, makeJourneyId, startTimer } from '@/lib/utils/observability'
 
 // node:crypto + @supabase/ssr cookies require the Node runtime, not Edge.
@@ -157,6 +157,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     emit({ journeyId, outcome: 'error', errorCode, requested: 0, explained: 0 })
     if (errorCode !== 'INVALID_INPUT') {
       captureException(err, { route: 'POST /api/recommendations/explanations', requestId, journeyId, errorCode })
+      // Serverless freezes the instance after the response; flush so the event isn't lost.
+      await flushErrorReporting()
     }
     logger.error('explanation request failed', { message: err instanceof Error ? err.message : String(err) })
     return NextResponse.json(

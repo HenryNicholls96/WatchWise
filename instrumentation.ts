@@ -21,8 +21,10 @@ export async function register(): Promise<void> {
 // reason as above); fail-open by construction (captureException never throws).
 export async function onRequestError(error: unknown, request: { path?: string; method?: string }): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { captureException } = await import('@/lib/utils/error-reporting')
+    const { captureException, flushErrorReporting } = await import('@/lib/utils/error-reporting')
     const route = request?.path ? `${request.method ?? ''} ${request.path}`.trim() : undefined
     captureException(error, { route, errorCode: 'UNHANDLED_REQUEST_ERROR' })
+    // Serverless freezes the instance after the response; flush so the event isn't lost.
+    await flushErrorReporting()
   }
 }
