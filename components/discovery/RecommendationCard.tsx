@@ -6,10 +6,12 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import Image from 'next/image'
-import { Film, Sparkles, Star } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Eye, Film, Sparkles, Star, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import type { Recommendation } from '@/lib/api/recommendations'
+import { recordInteraction } from '@/lib/api/interactions'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -181,13 +183,27 @@ export function RecommendationCard({
   fallbackExplanation?: string
 }) {
   const [open, setOpen] = useState(false)
-  const { content, confidence, platforms } = recommendation
+  const [dismissed, setDismissed] = useState(false)
+  const [sentimentDone, setSentimentDone] = useState(false)
+  const { content, confidence, platforms, alreadySeen } = recommendation
   const whyText = explanation && explanation.trim() ? explanation : null
   const fallbackWhy = fallbackExplanation ?? 'A strong match for what you asked for.'
 
   function openDetail() {
     setOpen(true)
     onOpen?.()
+  }
+  // Optimistic dismiss: hide the card immediately, record the signal fire-and-forget. recordInteraction
+  // never throws, so a network failure just means the signal is lost — the card stays dismissed (no jarring
+  // re-appear). stopPropagation keeps the ✕ from opening the detail modal.
+  function dismiss(e: MouseEvent) {
+    e.stopPropagation()
+    setDismissed(true)
+    void recordInteraction(content.id, 'dismissed')
+  }
+  function sendSentiment(action: 'loved' | 'not_for_me') {
+    setSentimentDone(true)
+    void recordInteraction(content.id, action)
   }
   const similar = pickSimilar(recommendation, siblings)
   const rank = Math.max(0, siblings.findIndex((s) => s.content.id === content.id))
@@ -196,28 +212,51 @@ export function RecommendationCard({
   const ratingSources = ratingSourcesLabel(content)
 
   return (
-    <>
-      <Card
-        role="button"
-        tabIndex={0}
-        aria-label={`View details for ${content.title}`}
-        onClick={openDetail}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            openDetail()
-          }
-        }}
-        className="group flex h-full cursor-pointer flex-row gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <div className="relative w-[7rem] shrink-0 self-stretch">
-          <Poster url={content.posterUrl} title={content.title} className="h-full w-full" />
-          {confidence === 'high' && (
-            <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold shadow-sm backdrop-blur">
-              <Sparkles className="h-2.5 w-2.5" /> Top match
-            </span>
-          )}
-        </div>
+    <AnimatePresence>
+      {!dismissed && (
+        <motion.div
+          key={content.id}
+          initial={false}
+          exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.2, ease: 'easeOut' } }}
+          className="h-full"
+        >
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-label={`View details for ${content.title}`}
+            onClick={openDetail}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                openDetail()
+              }
+            }}
+            className="group relative flex h-full cursor-pointer flex-row gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {/* Dismiss: subtle but present on touch, hover/focus-revealed on desktop. Never opens the modal. */}
+            <button
+              type="button"
+              onClick={dismiss}
+              aria-label={`Dismiss ${content.title}`}
+              className="absolute right-1.5 top-1.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-70 shadow-sm backdrop-blur transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+
+            <div className="relative w-[7rem] shrink-0 self-stretch">
+              <Poster url={content.posterUrl} title={content.title} className="h-full w-full" />
+              {confidence === 'high' && (
+                <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold shadow-sm backdrop-blur">
+                  <Sparkles className="h-2.5 w-2.5" /> Top match
+                </span>
+              )}
+              {/* Calm, low-contrast "already watched" cue — helpful, never judgmental. */}
+              {alreadySeen && (
+                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur">
+                  <Eye className="h-2.5 w-2.5" aria-hidden /> Seen
+                </span>
+              )}
+            </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
           <h3 className="font-semibold leading-snug tracking-tight">{content.title}</h3>
@@ -309,8 +348,36 @@ export function RecommendationCard({
               </div>
             </section>
           )}
+
+          {/* Progressive disclosure: quick sentiment lives in the OPENED modal, not on the grid — keeps the
+              default view minimal. Optional, calm, one-tap; records to the append-only interaction log. */}
+          <div className="flex items-center gap-2 border-t pt-3">
+            {sentimentDone ? (
+              <p className="text-xs text-muted-foreground">Thanks — noted for next time.</p>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground">Good pick?</span>
+                <button
+                  type="button"
+                  onClick={() => sendSentiment('loved')}
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium text-foreground/80 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ThumbsUp className="h-3 w-3" aria-hidden /> Loved it
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendSentiment('not_for_me')}
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium text-foreground/80 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ThumbsDown className="h-3 w-3" aria-hidden /> Not for me
+                </button>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
-    </>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }
