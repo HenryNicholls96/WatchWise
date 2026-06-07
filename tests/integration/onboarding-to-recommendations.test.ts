@@ -208,7 +208,7 @@ describe('authenticated onboarding → recommendations smoke test', () => {
         { contentId: COMEDY, sentiment: 'disliked' },
       ],
       platforms: ['netflix'],
-      preferences: { contentType: 'series', avoidGenres: [], runtime: 'any' },
+      preferences: { mediaType: 'series', avoidGenres: [], favouriteGenres: [] },
     })
     expect(completeRes.status).toBe(200)
     expect(await completeRes.json()).toMatchObject({ ok: true, seeds: 2 })
@@ -219,7 +219,7 @@ describe('authenticated onboarding → recommendations smoke test', () => {
     expect(db.profiles.get(USER_ID)).toMatchObject({
       onboarding_completed: true,
       preferred_platforms: ['netflix'],
-      preferences: { contentType: 'series' },
+      preferences: { mediaType: 'series' },
     })
 
     // 2) Now ask for recommendations as the same signed-in user.
@@ -247,5 +247,41 @@ describe('authenticated onboarding → recommendations smoke test', () => {
     // The session was recorded for the authenticated user.
     expect(db.sessions.length).toBe(1)
     expect(db.sessions[0]).toMatchObject({ user_id: USER_ID })
+  })
+
+  it('mediaType "documentary" hard-filters results to Documentary titles', async () => {
+    // Add a Documentary title alongside the Crime/Drama catalog, all on Netflix and in the candidate pool.
+    const DOC = '55555555-5555-4555-8555-555555555555'
+    const docRow = contentRow(DOC, ['Documentary', 'History'], 'movie', 0.72)
+    db.content.set(DOC, docRow)
+    db.candidates = [docRow, ...db.candidates]
+    db.contentPlatforms.push({
+      content_id: DOC,
+      platform_id: 'p-netflix',
+      region: 'us',
+      available_until: null,
+      deep_link: `https://netflix.com/${DOC.slice(0, 4)}`,
+      streaming_type: 'subscription',
+    })
+
+    const completeRes = await post(onboardingComplete, 'http://localhost/api/onboarding/complete', {
+      swipes: [],
+      platforms: ['netflix'],
+      preferences: { mediaType: 'documentary' },
+    })
+    expect(completeRes.status).toBe(200)
+
+    const recRes = await post(recommend, 'http://localhost/api/recommendations', { query: 'a gripping documentary' })
+    expect(recRes.status).toBe(200)
+    const body = await recRes.json()
+
+    // No contentType constraint (docs span movies + series); the Documentary genre is the hard gate.
+    expect(body.appliedConstraints.contentType).toBeUndefined()
+    expect(body.count).toBeGreaterThan(0)
+    for (const r of body.recommendations) {
+      expect(r.content.genres).toContain('Documentary')
+    }
+    // The Crime/Drama candidates (no Documentary genre) were filtered out.
+    expect(body.recommendations.map((r: { content: { id: string } }) => r.content.id)).toEqual([DOC])
   })
 })

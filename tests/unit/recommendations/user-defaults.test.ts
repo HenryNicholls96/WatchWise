@@ -11,7 +11,29 @@ describe('profileToDefaults', () => {
     expect(profileToDefaults({ preferred_platforms: ['netflix', 'prime'] }).platformSlugs).toEqual(['netflix', 'prime'])
   })
 
-  it('maps contentType, ignoring "any"', () => {
+  it('maps mediaType movie/series to contentType', () => {
+    expect(profileToDefaults({ preferences: { mediaType: 'movie' } }).contentType).toBe('movie')
+    expect(profileToDefaults({ preferences: { mediaType: 'series' } }).contentType).toBe('series')
+  })
+
+  it('maps mediaType "documentary" to a required Documentary genre, with no contentType', () => {
+    const d = profileToDefaults({ preferences: { mediaType: 'documentary' } })
+    expect(d.requireGenres).toEqual(['Documentary'])
+    expect(d.contentType).toBeUndefined()
+  })
+
+  it('maps mediaType "all" to no restriction at all', () => {
+    const d = profileToDefaults({ preferences: { mediaType: 'all' } })
+    expect(d.contentType).toBeUndefined()
+    expect(d.requireGenres).toBeUndefined()
+  })
+
+  it('mediaType "all" overrides any legacy contentType (no fallback)', () => {
+    const d = profileToDefaults({ preferences: { mediaType: 'all', contentType: 'series' } })
+    expect(d.contentType).toBeUndefined()
+  })
+
+  it('falls back to a legacy contentType when no mediaType is stored (back-compat)', () => {
     expect(profileToDefaults({ preferences: { contentType: 'movie' } }).contentType).toBe('movie')
     expect(profileToDefaults({ preferences: { contentType: 'series' } }).contentType).toBe('series')
     expect(profileToDefaults({ preferences: { contentType: 'any' } }).contentType).toBeUndefined()

@@ -19,9 +19,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export type UserDefaults = {
   /** From preferred_platforms — default platform allow-set when none is requested this session. */
   platformSlugs?: string[]
-  /** From preferences.contentType ('any' → no default). */
+  /** From preferences.mediaType ('movie'/'series'); legacy preferences.contentType honored as fallback. */
   contentType?: ContentType
-  /** Derived from preferences.runtime (see RUNTIME_CAP_MINUTES). */
+  /** Required genres (hard inclusion filter). From mediaType 'documentary' → ['Documentary']. */
+  requireGenres?: string[]
+  /** Derived from a legacy preferences.runtime answer (see RUNTIME_CAP_MINUTES). */
   maxRuntimeMinutes?: number
   /** From preferences.avoidGenres — canonical genre strings, applied as a soft default exclusion. */
   excludeGenres?: string[]
@@ -51,8 +53,17 @@ export function profileToDefaults(row: {
 
   const prefs = (row.preferences ?? {}) as Record<string, unknown>
 
-  if (prefs.contentType === 'movie' || prefs.contentType === 'series') {
-    defaults.contentType = prefs.contentType
+  // Media type (new) takes precedence. 'documentary' → hard Documentary-genre filter; 'all' → no
+  // restriction; 'movie'/'series' → content-type filter. Falls back to a legacy `contentType` answer so
+  // profiles written before the follow-up revamp keep working.
+  if (prefs.mediaType === 'movie' || prefs.mediaType === 'series') {
+    defaults.contentType = prefs.mediaType
+  } else if (prefs.mediaType === 'documentary') {
+    defaults.requireGenres = ['Documentary']
+  } else if (prefs.mediaType !== 'all') {
+    if (prefs.contentType === 'movie' || prefs.contentType === 'series') {
+      defaults.contentType = prefs.contentType
+    }
   }
 
   if (typeof prefs.runtime === 'string') {

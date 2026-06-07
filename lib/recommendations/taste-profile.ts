@@ -40,9 +40,12 @@ export function forYouEmbedQuery(profile: TasteProfile): string {
 /** How far a fully one-sided category (all-liked or all-disliked) moves from neutral. 0.5 → spans [0,1]. */
 const AFFINITY_SPREAD = 0.5
 
-/** Per-action contribution to a category's mean signal. 'not_seen' = "interested but unwatched" → mild +. */
+// Per-action contribution to a category's mean signal. 'not_seen' = "interested but unwatched" → mild +.
+// 'favourite_genre' = a follow-up "Most Favourite Items" pick → a strong positive, but deliberately below a
+// swipe_liked so one tap doesn't outweigh a category the user actually swiped through.
 const ACTION_WEIGHT: Record<string, number> = {
   swipe_liked: 1,
+  favourite_genre: 0.75,
   swipe_not_seen: 0.25,
   swipe_disliked: -1,
 }

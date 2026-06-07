@@ -29,17 +29,22 @@ export type SwipeDeckResponse = { categories: SwipeCategoryDeck[] }
 
 // ─── Follow-up answers ─────────────────────────────────────────────────────────
 
-export const CONTENT_PREF_OPTIONS = ['movie', 'series', 'any'] as const
-export const RUNTIME_OPTIONS = ['short', 'hour', 'movie', 'any'] as const
-// Common "rather not" genres → canonical catalog genre strings (become default excludeGenres).
-export const AVOID_GENRE_OPTIONS = ['Horror', 'Romance', 'Reality', 'Documentary', 'Animation'] as const
+// Media type the user wants by default. 'documentary' is NOT a content.type — it maps to a hard
+// Documentary-GENRE filter (user-defaults.ts); 'all' imposes no restriction (replaces the old "both").
+export const MEDIA_TYPES = ['movie', 'series', 'documentary', 'all'] as const
+export type MediaType = (typeof MEDIA_TYPES)[number]
 
-// Every preference here maps to a real engine knob (content type, excluded genres, runtime cap), so
-// answers shape results — not just stored for "later".
+// Every preference here maps to a real engine signal: mediaType → content-type / required-genre filter,
+// avoidGenres → soft excludeGenres, favouriteGenres → positive category-affinity, documentarySubgenres →
+// stored soft hints (reserved for documentary-aware ranking). Back-compat: older stored profiles may carry
+// `contentType`/`runtime` — those are read tolerantly by user-defaults.ts and simply ignored here.
 export const preferencesSchema = z.object({
-  contentType: z.enum(CONTENT_PREF_OPTIONS).optional(),
+  mediaType: z.enum(MEDIA_TYPES).optional(),
   avoidGenres: z.array(z.string().min(1)).max(10).optional(),
-  runtime: z.enum(RUNTIME_OPTIONS).optional(),
+  /** Genres the user loves — each maps to a swipe category and boosts that category's affinity. */
+  favouriteGenres: z.array(z.string().min(1)).max(20).optional(),
+  /** Documentary sub-genre interests (e.g. "True Crime") — stored as soft hints, no hard filter in v1. */
+  documentarySubgenres: z.array(z.string().min(1)).max(12).optional(),
 })
 export type Preferences = z.infer<typeof preferencesSchema>
 

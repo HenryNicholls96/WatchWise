@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Candidate, ContentRow } from '@/lib/types/content'
-import { filterByExcludedGenres, filterByLanguage } from '@/lib/recommendations/filters'
+import { filterByExcludedGenres, filterByLanguage, filterByRequiredGenres } from '@/lib/recommendations/filters'
 
 function candidate(overrides: Partial<ContentRow> = {}): Candidate {
   return {
@@ -72,6 +72,27 @@ describe('filterByExcludedGenres', () => {
     const otherHorror = candidate({ id: '00000000-0000-0000-0000-0000000000bb', genres: ['Horror'] })
     const out = filterByExcludedGenres([likedHorror, otherHorror], ['Horror'], [likedHorror.content.id])
     expect(out).toEqual([likedHorror])
+  })
+})
+
+describe('filterByRequiredGenres', () => {
+  it('is a no-op when no required genres are given', () => {
+    const cands = [candidate({ genres: ['Drama'] })]
+    expect(filterByRequiredGenres(cands, undefined)).toBe(cands)
+    expect(filterByRequiredGenres(cands, [])).toBe(cands)
+  })
+
+  it('keeps only candidates that include a required genre (case-insensitive)', () => {
+    const doc = candidate({ genres: ['Documentary', 'History'] })
+    const docCase = candidate({ genres: ['documentary'] })
+    const drama = candidate({ genres: ['Drama'] })
+    const out = filterByRequiredGenres([doc, docCase, drama], ['Documentary'])
+    expect(out).toEqual([doc, docCase])
+  })
+
+  it('DROPS titles with no matching genre — an inclusion gate, not fail-open', () => {
+    const bare = candidate({ genres: [] })
+    expect(filterByRequiredGenres([bare], ['Documentary'])).toEqual([])
   })
 })
 

@@ -50,6 +50,8 @@ export type FilterInput = {
   excludeContentIds?: string[]
   /** Canonical genre / tag terms to exclude (from negative intent, e.g. ['Horror']). */
   excludeGenres?: string[]
+  /** Genres a title MUST include to be eligible (e.g. ['Documentary'] for the Documentaries media type). */
+  requireGenres?: string[]
   /** Content IDs exempt from genre exclusion (e.g. titles the user explicitly liked). */
   protectContentIds?: string[]
   /** Restrict to a single original language (ISO 639-1, e.g. 'en'). Undefined = any. */
@@ -112,6 +114,17 @@ export function filterByExcludedGenres(
     const terms = [...c.content.genres, ...c.content.moodTags, ...c.content.themeTags]
     return !terms.some((t) => excluded.has(t.trim().toLowerCase()))
   })
+}
+
+/**
+ * Keeps only candidates that include at least one of the required genres (case-insensitive). This is a
+ * positive ELIGIBILITY gate (e.g. "Documentaries only"): unlike genre EXCLUSION, a title with no matching
+ * genre is DROPPED — we can't assert an untagged/non-matching title belongs. No-op when the set is empty.
+ */
+export function filterByRequiredGenres(candidates: Candidate[], requireGenres?: string[]): Candidate[] {
+  if (!requireGenres || requireGenres.length === 0) return candidates
+  const required = new Set(requireGenres.map((g) => g.trim().toLowerCase()))
+  return candidates.filter((c) => c.content.genres.some((g) => required.has(g.trim().toLowerCase())))
 }
 
 /**
@@ -200,6 +213,7 @@ export async function applyHardFilters(input: FilterInput, deps: FilterDeps): Pr
   let result = filterByContentType(input.candidates, input.contentType)
   result = filterByRuntime(result, input.maxRuntimeMinutes)
   result = filterByLanguage(result, input.originalLanguage)
+  result = filterByRequiredGenres(result, input.requireGenres)
   result = filterByExcludedGenres(result, input.excludeGenres, input.protectContentIds)
   result = filterByExclusions(result, input.excludeContentIds)
 
@@ -213,6 +227,7 @@ export async function applyHardFilters(input: FilterInput, deps: FilterDeps): Pr
     platforms: input.platformSlugs,
     maxRuntimeMinutes: input.maxRuntimeMinutes ?? null,
     excludeGenres: input.excludeGenres ?? [],
+    requireGenres: input.requireGenres ?? [],
   })
 
   return result

@@ -259,6 +259,10 @@ export async function getRecommendations(
   const contentType = query.contentType ?? intent.contentType ?? userDefaults.contentType
   const maxRuntimeMinutes = query.maxRuntimeMinutes ?? intent.maxRuntimeMinutes ?? userDefaults.maxRuntimeMinutes
   const originalLanguage = intent.originalLanguage
+  // Hard inclusion gate from the onboarding media type (e.g. Documentaries → ['Documentary']). No in-session
+  // override yet, so this comes solely from the user's stored default. Not relaxed if it empties results —
+  // it's an explicit ask, surfaced as a (documentary-aware) empty state by the UI.
+  const requireGenres = userDefaults.requireGenres ?? []
 
   // Genre exclusions combine this-session negatives with the onboarding avoid-list (deduped), minus any
   // the caller explicitly allowed back in (allowGenres — the UI's "un-click this filter" action). This is
@@ -302,6 +306,7 @@ export async function getRecommendations(
     maxRuntimeMinutes,
     excludeContentIds,
     excludeGenres,
+    requireGenres,
     protectContentIds: likedContentIds,
     originalLanguage,
   }

@@ -11,7 +11,8 @@ import { createClient } from '@/lib/supabase/server'
 import { type Logger, consoleLogger } from '@/lib/types/logger'
 import { type Swipe, completeOnboardingSchema } from '@/lib/types/onboarding'
 import type { InteractionAction } from '@/lib/types/interactions'
-import { computeCategoryAffinities } from '@/lib/recommendations/taste-profile'
+import { type SwipeSignal, computeCategoryAffinities } from '@/lib/recommendations/taste-profile'
+import { categoriesOf } from '@/lib/onboarding/categories'
 
 export const runtime = 'nodejs'
 
@@ -65,8 +66,9 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     // 1b) Personalization signals — BEST-EFFORT (never blocks completion): append the immutable swipe log
     //     and the derived per-category affinity prior the scorer reads. This is what makes the 50 swipes
-    //     actually move the user's results. A failure here just means a slightly weaker first session.
-    await persistPersonalizationSignalsBestEffort(supabase, userId, swipes, logger)
+    //     (and the "Most Favourite Items" picks) actually move the user's results. A failure here just means
+    //     a slightly weaker first session.
+    await persistPersonalizationSignalsBestEffort(supabase, userId, swipes, preferences.favouriteGenres ?? [], logger)
 
     // 2) Persist profile preferences + mark onboarding complete — BEST-EFFORT. Once the seeds above are
     //    saved, onboarding has succeeded from the user's perspective; a profile-write hiccup must never
@@ -136,40 +138,48 @@ function swipeAction(s: Swipe): InteractionAction {
 /**
  * Writes the append-only interaction log + the derived per-category affinity rows. NEVER throws and NEVER
  * blocks onboarding completion — the taste seeds above are the load-bearing write; these enrich ranking.
- * Affinity is only computed from swipes that carry a `category` (the new 5×10 deck); older payloads without
- * categories simply produce no affinity rows (and ranking falls back to seed overlap), so this is safe to
- * ship ahead of the new swipe UI.
+ * Affinity combines two positive/negative sources: swipes that carry a `category` (the 5×10 deck) and the
+ * "Most Favourite Items" genre picks (mapped to their category via the registry). Older payloads without
+ * either simply produce no affinity rows (ranking falls back to seed overlap), so this stays safe.
  */
 async function persistPersonalizationSignalsBestEffort(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, any, any>,
   userId: string,
   swipes: Swipe[],
+  favouriteGenres: string[],
   logger: Logger
 ): Promise<void> {
-  if (swipes.length === 0) return
+  if (swipes.length === 0 && favouriteGenres.length === 0) return
 
-  // Append-only interaction rows (immutable record of every swipe).
-  try {
-    const interactions = swipes.map((s) => ({
-      user_id: userId,
-      content_id: s.contentId,
-      action: swipeAction(s),
-      category: s.category ?? null,
-      source: 'onboarding',
-    }))
-    const { error } = await supabase.from('user_content_interactions').insert(interactions)
-    if (error) logger.warn('interaction log insert failed (non-fatal)', { message: error.message })
-  } catch (err) {
-    logger.warn('interaction log insert threw (non-fatal)', { message: err instanceof Error ? err.message : String(err) })
+  // Append-only interaction rows (immutable record of every swipe). Favourite-genre picks are not
+  // per-title swipes, so they're not logged here — only folded into the affinity signal below.
+  if (swipes.length > 0) {
+    try {
+      const interactions = swipes.map((s) => ({
+        user_id: userId,
+        content_id: s.contentId,
+        action: swipeAction(s),
+        category: s.category ?? null,
+        source: 'onboarding',
+      }))
+      const { error } = await supabase.from('user_content_interactions').insert(interactions)
+      if (error) logger.warn('interaction log insert failed (non-fatal)', { message: error.message })
+    } catch (err) {
+      logger.warn('interaction log insert threw (non-fatal)', { message: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   // Derived category affinities (the signal the scorer reads). Pure compute, then idempotent upsert.
   try {
-    const signals = swipes
+    const swipeSignals: SwipeSignal[] = swipes
       .filter((s) => s.category)
-      .map((s) => ({ category: s.category!, action: swipeAction(s) as 'swipe_liked' | 'swipe_disliked' | 'swipe_not_seen' }))
-    const rows = computeCategoryAffinities(signals).map((r) => ({
+      .map((s) => ({ category: s.category!, action: swipeAction(s) as SwipeSignal['action'] }))
+    // Each favourite genre lifts every category it belongs to (registry-mapped) with the favourite weight.
+    const favouriteSignals: SwipeSignal[] = favouriteGenres.flatMap((g) =>
+      categoriesOf({ genres: [g] }).map((category) => ({ category, action: 'favourite_genre' as const }))
+    )
+    const rows = computeCategoryAffinities([...swipeSignals, ...favouriteSignals]).map((r) => ({
       user_id: userId,
       category: r.category,
       affinity: r.affinity,

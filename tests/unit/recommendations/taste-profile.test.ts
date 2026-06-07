@@ -31,6 +31,21 @@ describe('computeCategoryAffinities', () => {
     expect(computeCategoryAffinities(signals)[0].affinity).toBeCloseTo(0.5, 5)
   })
 
+  it("'favourite_genre' is a strong positive, but below a swipe_liked", () => {
+    const fav = computeCategoryAffinities([{ category: 'action_adventure', action: 'favourite_genre' }])[0].affinity
+    const liked = computeCategoryAffinities([{ category: 'action_adventure', action: 'swipe_liked' }])[0].affinity
+    const notSeen = computeCategoryAffinities([{ category: 'action_adventure', action: 'swipe_not_seen' }])[0].affinity
+    expect(fav).toBeGreaterThan(notSeen)
+    expect(fav).toBeLessThan(liked)
+  })
+
+  it('a favourite pick can lift a category the user never swiped', () => {
+    const [row] = computeCategoryAffinities([{ category: 'drama_prestige', action: 'favourite_genre' }])
+    expect(row.category).toBe('drama_prestige')
+    expect(row.affinity).toBeGreaterThan(0.5)
+    expect(row.sampleCount).toBe(1)
+  })
+
   it("'not_seen' contributes a mild positive signal (less than a like)", () => {
     const notSeen = computeCategoryAffinities([{ category: 'sci_fi_fantasy', action: 'swipe_not_seen' }])[0].affinity
     const liked = computeCategoryAffinities([{ category: 'sci_fi_fantasy', action: 'swipe_liked' }])[0].affinity

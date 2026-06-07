@@ -12,6 +12,8 @@ const h = vi.hoisted(() => {
       seedRows: undefined as unknown,
       seedUpsertCalls: 0,
       profileUpdates: [] as Record<string, unknown>[],
+      interactionRows: [] as Record<string, unknown>[],
+      affinityRows: [] as Record<string, unknown>[],
     },
   }
 
@@ -28,6 +30,22 @@ const h = vi.hoisted(() => {
               cfg.captured.seedUpsertCalls++
               cfg.captured.seedRows = rows
               return { error: cfg.seedError }
+            },
+          }
+        }
+        if (table === 'user_content_interactions') {
+          return {
+            insert: async (rows: Record<string, unknown>[]) => {
+              cfg.captured.interactionRows.push(...rows)
+              return { error: null }
+            },
+          }
+        }
+        if (table === 'user_category_affinity') {
+          return {
+            upsert: async (rows: Record<string, unknown>[]) => {
+              cfg.captured.affinityRows.push(...rows)
+              return { error: null }
             },
           }
         }
@@ -74,12 +92,12 @@ beforeEach(() => {
   h.cfg.userId = 'user-1'
   h.cfg.seedError = null
   h.cfg.profileErrors = []
-  h.cfg.captured = { seedRows: undefined, seedUpsertCalls: 0, profileUpdates: [] }
+  h.cfg.captured = { seedRows: undefined, seedUpsertCalls: 0, profileUpdates: [], interactionRows: [], affinityRows: [] }
 })
 
 describe('POST /api/onboarding/complete', () => {
   it('upserts taste seeds and sets onboarding_completed', async () => {
-    const res = await post({ swipes: SWIPES, platforms: ['netflix'], preferences: { contentType: 'movie' } })
+    const res = await post({ swipes: SWIPES, platforms: ['netflix'], preferences: { mediaType: 'movie' } })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, seeds: 2 })
 
@@ -91,9 +109,26 @@ describe('POST /api/onboarding/complete', () => {
     expect(h.cfg.captured.profileUpdates).toHaveLength(1)
     expect(h.cfg.captured.profileUpdates[0]).toMatchObject({
       preferred_platforms: ['netflix'],
-      preferences: { contentType: 'movie' },
+      preferences: { mediaType: 'movie' },
       onboarding_completed: true,
     })
+  })
+
+  it('folds "Most Favourite Items" genre picks into category affinities (even with no swipes)', async () => {
+    const res = await post({
+      swipes: [],
+      platforms: [],
+      preferences: { favouriteGenres: ['Crime', 'Science Fiction'] },
+    })
+    expect(res.status).toBe(200)
+
+    // Crime → crime_thriller, Science Fiction → sci_fi_fantasy (registry mapping), each lifted above neutral.
+    const byCat = Object.fromEntries(h.cfg.captured.affinityRows.map((r) => [r.category, r]))
+    expect(byCat.crime_thriller).toMatchObject({ user_id: 'user-1' })
+    expect(byCat.sci_fi_fantasy).toMatchObject({ user_id: 'user-1' })
+    expect(byCat.crime_thriller.affinity as number).toBeGreaterThan(0.5)
+    // Favourites are not per-title swipes, so nothing lands in the interaction log.
+    expect(h.cfg.captured.interactionRows).toHaveLength(0)
   })
 
   it('completes with zero swipes (no seed write) and still records the flag', async () => {
