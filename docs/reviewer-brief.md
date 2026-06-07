@@ -32,6 +32,8 @@ That's the core loop. Onboarding tunes results (likes boost similar titles; "avo
   should never see a hard failure on the happy path; if you do, that's a bug worth reporting.
 - **Recommendations are server-authoritative.** Ranking/scoring happens on the server; the client never
   supplies scores.
+- **Errors are captured automatically.** Server-side error tracking is live, so if something breaks we'll
+  likely see it — but a one-line note from you (with the `release`, below) still helps us reproduce it fast.
 - **Catalog is finite.** ~900 curated titles across the three platforms (not the entire catalog), so some
   niche queries will reach. Low-confidence picks are hedged honestly rather than oversold.
 
@@ -51,7 +53,7 @@ Open `<preview-url>/api/health`. You'll get JSON like:
 
 ```json
 { "status": "ok", "release": "<commit sha>",
-  "checks": { "database": { "ok": true }, "distributedStore": { "ok": true, "backend": "redis" } },
+  "checks": { "database": { "ok": true }, "distributedStore": { "ok": true, "backend": "memory" } },
   "flags": { "explanations_llm": true } }
 ```
 
@@ -59,14 +61,17 @@ Open `<preview-url>/api/health`. You'll get JSON like:
   testing yet — ping us.
 - `release` tells us exactly which build you're on (quote it in bug reports).
 - `flags` shows what's switched on.
+- `backend: memory` is expected for this round (single instance). It only becomes `redis` once we add a
+  shared store for multi-instance scale — not needed to evaluate the product.
 
 ## Kill-switch demo — `explanations_llm`
 
-We can disable the LLM explanation step instantly (cost/incident kill switch) **without a redeploy**. To see
-the graceful-degrade behavior: with the flag **off**, open a card — you'll still get a sensible "why" line,
-just deterministic rather than LLM-written, and `/api/health` shows `"explanations_llm": false`. This is the
-fail-open design in action; nothing should break, you just lose the LLM phrasing.
-*(Flipping it is an operator action — ask us and we'll toggle it during the session.)*
+We can disable the LLM explanation step (cost/incident kill switch) and the app degrades gracefully. With the
+flag **off**, open a card — you'll still get a sensible "why" line, just deterministic rather than LLM-written,
+and `/api/health` shows `"explanations_llm": false`. This is the fail-open design in action; nothing should
+break, you just lose the LLM phrasing.
+*(Flipping it is an operator action — ask us and we'll toggle it. Today that's an env-flag change + a ~2-minute
+redeploy; a truly instant, no-redeploy flip lands once we add the shared store. Either way, no code change.)*
 
 ## What feedback helps most right now
 
