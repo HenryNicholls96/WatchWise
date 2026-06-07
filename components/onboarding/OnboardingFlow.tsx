@@ -16,7 +16,7 @@ import { JUST_ONBOARDED_KEY } from '@/lib/onboarding/post-onboarding-signal'
 import type { Swipe } from '@/lib/types/onboarding'
 import { Button } from '@/components/ui/button'
 import { WelcomeStep } from '@/components/onboarding/WelcomeStep'
-import { SwipeDeck } from '@/components/onboarding/SwipeDeck'
+import { CategorySwipeDeck } from '@/components/onboarding/SwipeDeck'
 import { FollowUpQuestions, type FollowUpAnswers } from '@/components/onboarding/FollowUpQuestions'
 
 type Step = 'welcome' | 'swipe' | 'questions'
@@ -101,13 +101,13 @@ export function OnboardingFlow() {
                 </div>
               )}
               {deck.isSuccess &&
-                (deck.data.length === 0 ? (
+                (deck.data.length === 0 || deck.data.every((c) => c.titles.length === 0) ? (
                   <div className="flex flex-col items-center gap-3 text-center">
                     <p className="text-muted-foreground">No titles to show right now.</p>
                     <Button onClick={() => setStep('questions')}>Continue</Button>
                   </div>
                 ) : (
-                  <SwipeDeck titles={deck.data} onComplete={handleDeckComplete} />
+                  <CategorySwipeDeck categories={deck.data} onComplete={handleDeckComplete} />
                 ))}
             </>
           )}

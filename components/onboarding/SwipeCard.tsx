@@ -7,7 +7,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react'
 import Image from 'next/image'
 import { animate, motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
-import { ChevronsUp, Film, Heart, X } from 'lucide-react'
+import { EyeOff, Film, Heart, X } from 'lucide-react'
 import type { SwipeTitle } from '@/lib/types/onboarding'
 
 export type SwipeDecision = 'liked' | 'disliked' | 'skip'
@@ -52,7 +52,7 @@ export function CardFace({ title }: { title: SwipeTitle }) {
             <X className="h-3 w-3 text-rose-400" aria-hidden /> Pass
           </span>
           <span className="inline-flex items-center gap-1">
-            <ChevronsUp className="h-3 w-3 text-sky-400" aria-hidden /> Not Seen
+            <EyeOff className="h-3 w-3 text-sky-400" aria-hidden /> Not Seen
           </span>
           <span className="inline-flex items-center gap-1">
             <Heart className="h-3 w-3 text-emerald-400" aria-hidden /> Like

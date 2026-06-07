@@ -16,7 +16,16 @@ export type SwipeTitle = {
   genres: string[]
 }
 
-export type SwipeDeckResponse = { titles: SwipeTitle[] }
+/** One category's section of the swipe deck (header + its 10 titles). */
+export type SwipeCategoryDeck = {
+  /** Category id from the registry (lib/onboarding/categories.ts) — sent back on each swipe. */
+  id: string
+  label: string
+  blurb: string
+  titles: SwipeTitle[]
+}
+
+export type SwipeDeckResponse = { categories: SwipeCategoryDeck[] }
 
 // ─── Follow-up answers ─────────────────────────────────────────────────────────
 
@@ -36,20 +45,17 @@ export type Preferences = z.infer<typeof preferencesSchema>
 
 // ─── Completion payload (client → server) ─────────────────────────────────────
 
-// A swipe carries the cold-start SENTIMENT (liked/disliked → taste seed) plus, additively, the deck
-// `category` it came from and an explicit `action` (so we can also log a 'not_seen' swipe as an
-// append-only interaction). Both new fields are OPTIONAL and backward-compatible: the current onboarding
-// client (which sends only {contentId, sentiment}) keeps working unchanged while the new 5×10 flow is built.
-//
-// NOTE: 'not_seen' is NOT a taste-seed sentiment — it means "interested but unwatched". When `action` is
-// 'swipe_not_seen' there is no seed written; only an interaction is logged. So `sentiment` stays
-// liked|disliked (seed-bearing) and `action` is the richer signal.
+// A swipe carries the deck `category` it came from, an `action`, and (for like/dislike) a SENTIMENT that
+// seeds ranking. A 'not_seen' swipe means "interested but unwatched" — it is NOT a taste-seed sentiment, so
+// `sentiment` is OPTIONAL and simply omitted for not_seen (only an interaction is logged, plus a mild
+// positive category-affinity signal). `category`/`action` remain optional so the pre-5×10 client (which
+// sent only {contentId, sentiment}) still validates.
 export const swipeSchema = z.object({
   contentId: z.string().uuid(),
-  sentiment: z.enum(['liked', 'disliked']),
+  sentiment: z.enum(['liked', 'disliked']).optional(),
   /** Deck category id this title was shown in (see lib/onboarding/categories.ts). */
   category: z.string().min(1).max(64).optional(),
-  /** Explicit interaction action; defaults are derived from `sentiment` when absent. */
+  /** Explicit interaction action; derived from `sentiment` when absent. Required to express 'not_seen'. */
   action: z.enum(['swipe_liked', 'swipe_disliked', 'swipe_not_seen']).optional(),
 })
 export type Swipe = z.infer<typeof swipeSchema>

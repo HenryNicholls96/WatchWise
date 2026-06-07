@@ -1,15 +1,15 @@
 // Client-side calls for the onboarding flow.
 
-import type { CompleteOnboardingInput, SwipeDeckResponse, SwipeTitle } from '@/lib/types/onboarding'
+import type { CompleteOnboardingInput, SwipeCategoryDeck, SwipeDeckResponse } from '@/lib/types/onboarding'
 
-export async function fetchOnboardingDeck(signal?: AbortSignal): Promise<SwipeTitle[]> {
+export async function fetchOnboardingDeck(signal?: AbortSignal): Promise<SwipeCategoryDeck[]> {
   const res = await fetch('/api/onboarding/deck', { signal })
   if (!res.ok) {
     const message = await res.json().then((d: { error?: string }) => d.error).catch(() => undefined)
     throw new Error(message || 'Could not load titles.')
   }
   const data = (await res.json()) as SwipeDeckResponse
-  return data.titles
+  return data.categories
 }
 
 export async function completeOnboarding(input: CompleteOnboardingInput): Promise<void> {

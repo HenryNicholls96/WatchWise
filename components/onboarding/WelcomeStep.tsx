@@ -14,12 +14,17 @@ export function WelcomeStep({ onStart, disabled }: { onStart: () => void; disabl
       </span>
 
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">No more scrolling</h1>
-        <p className="text-muted-foreground">A few swipes and we&rsquo;re away...</p>
+        <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Let&rsquo;s learn your taste</h1>
+        <p className="text-muted-foreground">Five quick rounds of swiping — about five minutes.</p>
       </div>
 
-      <div className="rounded-xl border bg-muted/40 p-4 text-center text-sm text-muted-foreground">
-        These give us hints at your viewing preferences — we may recommend a gem you&rsquo;ve already seen
+      <div className="rounded-xl border bg-muted/40 p-4 text-left text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">Five minutes now, far sharper picks forever.</p>
+        <p className="mt-1">
+          You&rsquo;ll react to 50 titles across five genres — Like it, Pass, or Not Seen. The more honestly
+          you swipe, the better your recommendations get from your very first search. No wrong answers; just go
+          with your gut. (We may show a gem you&rsquo;ve already seen — that&rsquo;s a hint, not a mistake.)
+        </p>
       </div>
 
       <Button size="lg" className="h-12 w-full" onClick={onStart} disabled={disabled}>

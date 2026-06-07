@@ -43,16 +43,20 @@ export async function POST(req: Request): Promise<NextResponse> {
     // 1) Persist swipe seeds — the CRITICAL write (idempotent via unique(user_id, content_id), so
     //    re-running onboarding overwrites prior sentiment). This is the user's actual taste signal;
     //    if it can't be saved there's nothing to fail open to, so surface the error and let them retry.
-    if (swipes.length > 0) {
-      const rows = swipes.map((s) => ({
+    // Only like/dislike swipes seed ranking; 'not_seen' swipes carry no sentiment (they're logged as
+    // interactions + a mild affinity signal below, not as taste seeds).
+    const seedRows = swipes
+      .filter((s) => s.sentiment === 'liked' || s.sentiment === 'disliked')
+      .map((s) => ({
         user_id: userId,
         content_id: s.contentId,
         sentiment: s.sentiment,
         category: s.category ?? null,
       }))
+    if (seedRows.length > 0) {
       const { error: seedErr } = await supabase
         .from('user_taste_seeds')
-        .upsert(rows, { onConflict: 'user_id,content_id' })
+        .upsert(seedRows, { onConflict: 'user_id,content_id' })
       if (seedErr) {
         logger.error('taste seed upsert failed', { message: seedErr.message })
         return NextResponse.json({ error: 'Could not save your picks. Please try again.' }, { status: 502 })
