@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Eye, Film, Sparkles, Star, ThumbsDown, ThumbsUp, X } from 'lucide-react'
@@ -184,27 +184,97 @@ export function RecommendationCard({
 }) {
   const [open, setOpen] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [dismissFailed, setDismissFailed] = useState(false)
+  const [trayOpen, setTrayOpen] = useState(false)
   const [sentimentDone, setSentimentDone] = useState(false)
   const { content, confidence, platforms, alreadySeen } = recommendation
   const whyText = explanation && explanation.trim() ? explanation : null
   const fallbackWhy = fallbackExplanation ?? 'A strong match for what you asked for.'
 
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
+  const pointerStart = useRef<{ x: number; y: number } | null>(null)
+  const trayCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current)
+      if (trayCloseTimer.current) clearTimeout(trayCloseTimer.current)
+      if (errorTimer.current) clearTimeout(errorTimer.current)
+    }
+  }, [])
+
   function openDetail() {
     setOpen(true)
     onOpen?.()
   }
-  // Optimistic dismiss: hide the card immediately, record the signal fire-and-forget. recordInteraction
-  // never throws, so a network failure just means the signal is lost — the card stays dismissed (no jarring
-  // re-appear). stopPropagation keeps the ✕ from opening the detail modal.
+
+  function clearLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
+  // Long-press reveals the quick-sentiment tray, but ONLY on titles the user has already seen — so the
+  // gesture stays predictable. On every other card a press is just a tap (opens the detail modal).
+  function handlePointerDown(e: PointerEvent) {
+    if (!alreadySeen) return
+    pointerStart.current = { x: e.clientX, y: e.clientY }
+    clearLongPress()
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      setTrayOpen(true)
+    }, 450)
+  }
+  function handlePointerMove(e: PointerEvent) {
+    const start = pointerStart.current
+    if (!start) return
+    if (Math.abs(e.clientX - start.x) > 10 || Math.abs(e.clientY - start.y) > 10) clearLongPress()
+  }
+
+  // A completed long-press already opened the tray; swallow the trailing click so it doesn't also open
+  // the detail modal.
+  function handleCardClick() {
+    if (longPressFired.current) {
+      longPressFired.current = false
+      return
+    }
+    openDetail()
+  }
+
+  // Optimistic dismiss: hide the card immediately, then confirm with the backend. If the signal fails to
+  // persist we bring the card back and surface a calm, transient note rather than silently losing it.
+  // stopPropagation keeps the ✕ from opening the detail modal.
   function dismiss(e: MouseEvent) {
     e.stopPropagation()
+    setDismissFailed(false)
     setDismissed(true)
-    void recordInteraction(content.id, 'dismissed')
+    void (async () => {
+      const ok = await recordInteraction(content.id, 'dismissed')
+      if (!ok) {
+        setDismissed(false)
+        setDismissFailed(true)
+        if (errorTimer.current) clearTimeout(errorTimer.current)
+        errorTimer.current = setTimeout(() => setDismissFailed(false), 4000)
+      }
+    })()
   }
-  function sendSentiment(action: 'loved' | 'not_for_me') {
+
+  function toggleTray(e: MouseEvent) {
+    e.stopPropagation()
+    setTrayOpen((v) => !v)
+  }
+
+  function sendSentiment(action: 'loved' | 'not_for_me', e?: MouseEvent) {
+    e?.stopPropagation()
     setSentimentDone(true)
     void recordInteraction(content.id, action)
+    if (trayCloseTimer.current) clearTimeout(trayCloseTimer.current)
+    trayCloseTimer.current = setTimeout(() => setTrayOpen(false), 1500)
   }
+
   const similar = pickSimilar(recommendation, siblings)
   const rank = Math.max(0, siblings.findIndex((s) => s.content.id === content.id))
   const stars = rankStars(rank, siblings.length)
@@ -224,7 +294,12 @@ export function RecommendationCard({
             role="button"
             tabIndex={0}
             aria-label={`View details for ${content.title}`}
-            onClick={openDetail}
+            onClick={handleCardClick}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={clearLongPress}
+            onPointerLeave={clearLongPress}
+            onPointerCancel={clearLongPress}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
@@ -237,8 +312,9 @@ export function RecommendationCard({
             <button
               type="button"
               onClick={dismiss}
+              onPointerDown={(e) => e.stopPropagation()}
               aria-label={`Dismiss ${content.title}`}
-              className="absolute right-1.5 top-1.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-70 shadow-sm backdrop-blur transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100"
+              className="absolute right-1.5 top-1.5 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-70 shadow-sm backdrop-blur transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
@@ -250,11 +326,19 @@ export function RecommendationCard({
                   <Sparkles className="h-2.5 w-2.5" /> Top match
                 </span>
               )}
-              {/* Calm, low-contrast "already watched" cue — helpful, never judgmental. */}
+              {/* Calm, low-contrast "already watched" cue — helpful, never judgmental. Tapping it reveals
+                  optional quick sentiment (progressive disclosure). */}
               {alreadySeen && (
-                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur">
-                  <Eye className="h-2.5 w-2.5" aria-hidden /> Seen
-                </span>
+                <button
+                  type="button"
+                  onClick={toggleTray}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  aria-expanded={trayOpen}
+                  aria-label={`Already seen — rate ${content.title}`}
+                  className="absolute bottom-1.5 left-1.5 z-10 inline-flex items-center gap-1 rounded-full bg-background/85 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Eye className="h-2.5 w-2.5" aria-hidden /> Already seen
+                </button>
               )}
             </div>
 
@@ -271,6 +355,71 @@ export function RecommendationCard({
             </div>
           </div>
         </div>
+
+            {/* Quick-sentiment tray — progressive disclosure via the badge tap or a long-press on an
+                already-seen card. Calm, optional, one-tap; records to the append-only interaction log. */}
+            <AnimatePresence>
+              {trayOpen && (
+                <motion.div
+                  key="tray"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 rounded-b-xl border-t bg-background/95 px-3 py-2 backdrop-blur"
+                >
+                  {sentimentDone ? (
+                    <p className="text-xs text-muted-foreground">Thanks — noted for next time.</p>
+                  ) : (
+                    <>
+                      <span className="text-xs text-muted-foreground">Seen it —</span>
+                      <button
+                        type="button"
+                        onClick={(e) => sendSentiment('loved', e)}
+                        className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-medium text-foreground/80 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <ThumbsUp className="h-3 w-3" aria-hidden /> Loved it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => sendSentiment('not_for_me', e)}
+                        className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-medium text-foreground/80 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <ThumbsDown className="h-3 w-3" aria-hidden /> Not for me
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleTray}
+                        aria-label="Close"
+                        className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Calm, transient recovery note if the dismiss signal didn't persist. */}
+            <AnimatePresence>
+              {dismissFailed && (
+                <motion.p
+                  key="dismiss-error"
+                  role="status"
+                  aria-live="polite"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="absolute inset-x-0 bottom-0 z-20 rounded-b-xl border-t bg-background/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur"
+                >
+                  Couldn’t hide this right now. Try again in a moment.
+                </motion.p>
+              )}
+            </AnimatePresence>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
