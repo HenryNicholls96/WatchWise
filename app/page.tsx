@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ONBOARDING_PATH, getOnboardingState } from "@/lib/auth/onboarding-gate";
 import { DiscoveryView } from "@/components/discovery/DiscoveryView";
+import { TasteTunedBanner } from "@/components/discovery/TasteTunedBanner";
 
 export default async function Home() {
   // Gate: a signed-in user who hasn't finished onboarding goes there first. A no-session visitor
@@ -17,6 +18,9 @@ export default async function Home() {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-gradient-to-b from-accent/60 via-background to-background"
       />
+
+      {/* One-time post-onboarding reassurance; renders nothing unless the user just finished onboarding. */}
+      <TasteTunedBanner />
 
       <header className="mb-10 flex w-full max-w-5xl flex-col gap-3">
         <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">

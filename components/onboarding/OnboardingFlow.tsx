@@ -12,6 +12,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { completeOnboarding, fetchOnboardingDeck } from '@/lib/api/onboarding'
+import { JUST_ONBOARDED_KEY } from '@/lib/onboarding/post-onboarding-signal'
 import type { Swipe } from '@/lib/types/onboarding'
 import { Button } from '@/components/ui/button'
 import { WelcomeStep } from '@/components/onboarding/WelcomeStep'
@@ -43,7 +44,16 @@ export function OnboardingFlow() {
 
   const complete = useMutation({
     mutationFn: completeOnboarding,
-    onSuccess: () => router.replace('/'),
+    onSuccess: () => {
+      // One-time signal for the discovery page to show the "Results tuned to your taste" banner. Read
+      // and cleared once there (see TasteTunedBanner). sessionStorage so it never persists across tabs/sessions.
+      try {
+        sessionStorage.setItem(JUST_ONBOARDED_KEY, '1')
+      } catch {
+        // Storage unavailable (private mode quotas etc.) — the banner just won't show; non-critical.
+      }
+      router.replace('/')
+    },
   })
 
   function handleDeckComplete(swipes: Swipe[]) {
