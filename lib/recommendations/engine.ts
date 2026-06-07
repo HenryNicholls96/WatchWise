@@ -30,8 +30,9 @@ import { type EmbeddingClient, retrieveCandidates, DEFAULT_CANDIDATE_LIMIT } fro
 import { applyHardFilters } from '@/lib/recommendations/filters'
 import { type ParsedIntent, PLATFORM_SLUGS, parseQueryConstraints } from '@/lib/recommendations/intent'
 import { type ScoreWeights, type ScoredCandidate, DEFAULT_SCORE_WEIGHTS, scoreAndRank } from '@/lib/recommendations/scoring'
-import { type TasteProfile, emptyTasteProfile, loadTasteProfile } from '@/lib/recommendations/taste-profile'
+import { type TasteProfile, emptyTasteProfile, forYouEmbedQuery, loadTasteProfile } from '@/lib/recommendations/taste-profile'
 import { NEUTRAL_AFFINITY } from '@/lib/onboarding/categories'
+import { loadSeenContentIds } from '@/lib/recommendations/interactions'
 import { type UserDefaults, loadUserDefaults } from '@/lib/recommendations/user-defaults'
 import {
   type ExplanationCache,
@@ -78,8 +79,16 @@ export class EngineError extends Error {
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
+export type RecommendationMode = 'search' | 'for-you'
+
 export type RecommendationQuery = {
+  /** The user's search text. Required for mode 'search'; ignored for 'for-you' (no query). */
   queryText: string
+  /**
+   * 'search' (default) = embed the user's query. 'for-you' = no query: embed a taste-derived query from
+   * the TasteProfile and rank by category affinity. Same pipeline, same scoring — just a different seed.
+   */
+  recommendationMode?: RecommendationMode
   /** If given (and tasteSeeds is not), seeds are loaded from user_taste_seeds. */
   userId?: string
   /** Pre-loaded seeds. Takes precedence over userId, bypassing the DB. */
@@ -116,6 +125,11 @@ export type RecommendationQuery = {
    * avoid a duplicate session row. Default true.
    */
   recordSession?: boolean
+  /**
+   * When false, skip the `alreadySeen` lookup (one query). The deferred-explanations re-run discards the
+   * recommendation objects, so it has no use for the stamp. Default true.
+   */
+  stampAlreadySeen?: boolean
 }
 
 /** Where a title can be watched on one of the user's platforms. */
@@ -132,6 +146,9 @@ export type Recommendation = ResultWithExplanation & {
    * Limited to the user's platforms when platformSlugs is provided; otherwise all platforms.
    */
   platforms: PlatformOffer[]
+  /** True when the user has marked this title seen (any SEEN_ACTIONS interaction). Drives the
+   *  "Already seen" badge and is the shared signal behind the global Seen/Not-Seen filter. */
+  alreadySeen: boolean
 }
 
 /**
@@ -184,8 +201,9 @@ export async function getRecommendations(
 ): Promise<RecommendationResponse> {
   const logger = deps.logger ?? noopLogger
 
-  const queryText = query.queryText?.trim()
-  if (!queryText) {
+  const mode: RecommendationMode = query.recommendationMode ?? 'search'
+  const queryText = query.queryText?.trim() ?? ''
+  if (mode === 'search' && !queryText) {
     throw new EngineError('INVALID_INPUT', 'queryText must be a non-empty string')
   }
 
@@ -193,13 +211,11 @@ export async function getRecommendations(
   const limit = clampLimit(query.limit)
   const withExplanations = query.withExplanations ?? true
   const recordSession = query.recordSession ?? true
+  const stampSeen = query.stampAlreadySeen ?? true
 
-  // 0) Parse structured intent (negatives + positives). Embed the CLEANED query (constraint clauses
-  //    stripped, so the vector reflects only the semantic ask); fall back to raw if cleaning emptied
-  //    it. The explanation cache key hashes the ORIGINAL query (that's what the prompt references).
+  // 0) Parse structured intent (negatives + positives) from the query. For 'for-you' there's no user
+  //    query, so intent is empty (the embed query is synthesized from the taste profile below).
   const intent = parseQueryConstraints(queryText)
-  const embedQuery = intent.cleanedQuery || queryText
-  const queryHash = hashQuery(queryText)
 
   // 1) Load this user's signals in parallel:
   //    • tasteSeeds — liked/disliked swipes → drive RANKING (computePersonalization), never filtering.
@@ -218,6 +234,15 @@ export async function getRecommendations(
         ? loadTasteProfile(query.userId, deps.supabase, { logger })
         : Promise.resolve(emptyTasteProfile()),
   ])
+
+  // Resolve the text we actually embed + the cache namespace, by mode:
+  //   • search  → the intent-cleaned user query (the explanation cache key hashes the ORIGINAL query).
+  //   • for-you → a TEMPORARY synthetic query from the taste profile (see forYouEmbedQuery's TODO on the
+  //               centroid-retrieval migration path). Namespaced ('for-you:') so it can't collide with a
+  //               user typing the same words.
+  const embedQuery = mode === 'for-you' ? forYouEmbedQuery(tasteProfile) : intent.cleanedQuery || queryText
+  const recordedQuery = mode === 'for-you' ? embedQuery : queryText
+  const queryHash = hashQuery(mode === 'for-you' ? `for-you:${embedQuery}` : queryText)
 
   // Merge constraints. PRECEDENCE: explicit API param  >  parsed query intent  >  onboarding default.
   // Onboarding answers only fill gaps the user didn't specify this session, so a per-query choice (or
@@ -292,7 +317,7 @@ export async function getRecommendations(
   let explanationStats: ExplanationStats
   if (withExplanations) {
     const r = await generateExplanations(
-      { results: top, queryText, queryHash, tasteSeeds },
+      { results: top, queryText: recordedQuery, queryHash, tasteSeeds },
       { client: deps.explanationClient, cache: deps.explanationCache, logger }
     )
     explained = r.results
@@ -313,19 +338,22 @@ export async function getRecommendations(
   }
   const explainMs = explainTimer()
 
-  // 6) Attach where-to-watch (respects the platform allow-set).
+  // 6) Attach where-to-watch + the already-seen stamp. Both key off the final ids, so we run them in
+  //    parallel (one platform-availability query + one seen-set query). Seen lookup is fail-open and
+  //    skipped for anonymous-without-session callers (no userId) or when stampSeen is false.
   const offersTimer = startTimer()
-  const offers = await loadPlatformOffers(
-    explained.map((r) => r.content.id),
-    platformSlugs,
-    region,
-    deps.supabase,
-    logger
-  )
+  const finalIds = explained.map((r) => r.content.id)
+  const [offers, seenIds] = await Promise.all([
+    loadPlatformOffers(finalIds, platformSlugs, region, deps.supabase, logger),
+    stampSeen && query.userId
+      ? loadSeenContentIds(query.userId, finalIds, deps.supabase, logger)
+      : Promise.resolve(new Set<string>()),
+  ])
   const offersMs = offersTimer()
   const recommendations: Recommendation[] = explained.map((r) => ({
     ...r,
     platforms: offers.get(r.content.id) ?? [],
+    alreadySeen: seenIds.has(r.content.id),
   }))
 
   const appliedConstraints: AppliedConstraints = {
@@ -344,7 +372,7 @@ export async function getRecommendations(
       deps.supabase,
       {
         userId: query.userId,
-        queryText,
+        queryText: recordedQuery,
         parsedIntent: intent,
         platformFilters: platformSlugs,
         contentType,

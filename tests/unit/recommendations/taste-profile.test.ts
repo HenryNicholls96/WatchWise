@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeCategoryAffinities,
   emptyTasteProfile,
+  forYouEmbedQuery,
   rowsToProfile,
   NEUTRAL_AFFINITY,
 } from '@/lib/recommendations/taste-profile'
@@ -82,5 +83,41 @@ describe('emptyTasteProfile', () => {
   it('is an empty (all-neutral) profile', () => {
     expect(emptyTasteProfile().categoryAffinities.size).toBe(0)
     expect(NEUTRAL_AFFINITY).toBe(0.5)
+  })
+})
+
+describe('forYouEmbedQuery', () => {
+  const FALLBACK = 'popular, highly rated movies and shows'
+
+  it('falls back when there are no positive categories', () => {
+    expect(forYouEmbedQuery(emptyTasteProfile())).toBe(FALLBACK)
+    // neutral/negative categories don't qualify
+    expect(
+      forYouEmbedQuery({ categoryAffinities: new Map([['crime_thriller', 0.5], ['drama_prestige', 0.2]]) })
+    ).toBe(FALLBACK)
+  })
+
+  it('uses the labels of the top positive categories, highest affinity first', () => {
+    const q = forYouEmbedQuery({
+      categoryAffinities: new Map([
+        ['crime_thriller', 0.7],
+        ['sci_fi_fantasy', 0.95],
+        ['comedy_feelgood', 0.62],
+      ]),
+    })
+    expect(q).toBe('Sci-Fi & Fantasy, Crime & Thriller, Comedy & Feel-Good')
+  })
+
+  it('caps at the top 3', () => {
+    const q = forYouEmbedQuery({
+      categoryAffinities: new Map([
+        ['crime_thriller', 0.9],
+        ['sci_fi_fantasy', 0.85],
+        ['comedy_feelgood', 0.8],
+        ['drama_prestige', 0.75],
+        ['action_adventure', 0.7],
+      ]),
+    })
+    expect(q.split(', ')).toHaveLength(3)
   })
 })

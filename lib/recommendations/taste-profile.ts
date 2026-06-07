@@ -10,9 +10,32 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { type Logger, noopLogger } from '@/lib/types/logger'
-import { CATEGORY_IDS, NEUTRAL_AFFINITY } from '@/lib/onboarding/categories'
+import { CATEGORY_IDS, NEUTRAL_AFFINITY, getCategory } from '@/lib/onboarding/categories'
 
 export { NEUTRAL_AFFINITY }
+
+/** Minimum affinity above neutral for a category to count as a "liked" signal worth surfacing. */
+const FOR_YOU_LIKED_THRESHOLD = NEUTRAL_AFFINITY + 0.05
+/** Generic fallback when the user has no clear positive categories (keeps the For-You rail non-empty). */
+const FOR_YOU_FALLBACK_QUERY = 'popular, highly rated movies and shows'
+
+/**
+ * TEMPORARY (v1) synthetic query for the no-query "For You" path: the labels of the user's top positive
+ * categories, embedded by the normal retrieval pipeline. Deterministic, cheap, and good enough to seed a
+ * taste-shaped candidate pool that the categoryAffinity scorer then re-ranks.
+ *
+ * TODO(centroid): replace this with affinity-weighted category-centroid retrieval — precompute per-category
+ * centroid embeddings (mean of member titles' vectors) and a match_content_centroid RPC, then retrieve by
+ * the weighted centroid. That removes the lossy text round-trip. Tracked as RAL N15.
+ */
+export function forYouEmbedQuery(profile: TasteProfile): string {
+  const top = [...profile.categoryAffinities.entries()]
+    .filter(([, a]) => a >= FOR_YOU_LIKED_THRESHOLD)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([id]) => getCategory(id)?.label ?? id)
+  return top.length > 0 ? top.join(', ') : FOR_YOU_FALLBACK_QUERY
+}
 
 /** How far a fully one-sided category (all-liked or all-disliked) moves from neutral. 0.5 → spans [0,1]. */
 const AFFINITY_SPREAD = 0.5

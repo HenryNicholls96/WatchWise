@@ -43,18 +43,27 @@ const AUTH_LIMIT = 60
 
 // Note: `userId` is intentionally NOT accepted from the client — identity is derived server-side from
 // the Supabase session (see below). Unknown keys (including a stray userId) are stripped by Zod.
-const requestSchema = z.object({
-  query: z.string().trim().min(1, 'query is required').max(1_000),
-  platformSlugs: z.array(z.string().min(1)).max(10).optional(),
-  region: z.string().min(1).max(10).optional(),
-  contentType: z.enum(CONTENT_TYPES).optional(),
-  maxRuntimeMinutes: z.number().int().positive().max(1_000).optional(),
-  excludeContentIds: z.array(z.string().uuid()).max(200).optional(),
-  // Soft genre exclusions the caller wants relaxed (the UI's "un-click this filter" action). Only broadens
-  // results — never adds a hard filter — so it's safe to accept from the client.
-  allowGenres: z.array(z.string().min(1).max(40)).max(20).optional(),
-  limit: z.number().int().positive().max(50).optional(),
-})
+const requestSchema = z
+  .object({
+    // Optional so 'for-you' (no-query) requests validate; required for 'search' (enforced below).
+    query: z.string().trim().min(1, 'query is required').max(1_000).optional(),
+    /** 'search' (default) embeds the query; 'for-you' embeds a taste-derived query (no user text). */
+    recommendationMode: z.enum(['search', 'for-you']).optional(),
+    platformSlugs: z.array(z.string().min(1)).max(10).optional(),
+    region: z.string().min(1).max(10).optional(),
+    contentType: z.enum(CONTENT_TYPES).optional(),
+    maxRuntimeMinutes: z.number().int().positive().max(1_000).optional(),
+    excludeContentIds: z.array(z.string().uuid()).max(200).optional(),
+    // Soft genre exclusions the caller wants relaxed (the UI's "un-click this filter" action). Only broadens
+    // results — never adds a hard filter — so it's safe to accept from the client.
+    allowGenres: z.array(z.string().min(1).max(40)).max(20).optional(),
+    limit: z.number().int().positive().max(50).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if ((val.recommendationMode ?? 'search') === 'search' && !val.query) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'query is required', path: ['query'] })
+    }
+  })
 
 export async function POST(req: Request): Promise<NextResponse> {
   const logger = consoleLogger
@@ -105,7 +114,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid request.' }, { status: 400, headers: { 'x-request-id': requestId } })
     }
     const { query, ...options } = parsed.data
-    journeyId = makeJourneyId(userId ?? `ip:${ip}`, hashQuery(query))
+    // For-you requests have no query text; namespace the correlation id so it's stable per caller.
+    journeyId = makeJourneyId(userId ?? `ip:${ip}`, hashQuery(query ?? 'for-you'))
 
     // 4) Build clients and run the pipeline.
     const voyage = new VoyageAIClient({ apiKey: requireEnv('VOYAGE_API_KEY') })
@@ -133,8 +143,9 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     // Explanations are DEFERRED: the grid doesn't render them (they live only in the detail modal), so
     // we return scored results immediately and the client fetches explanations via /explanations.
+    // `recommendationMode` flows through ...options; queryText is '' for the for-you (no-query) path.
     const { recommendations, appliedConstraints, metrics } = await getRecommendations(
-      { queryText: query, userId, withExplanations: false, scoreWeights, ...options },
+      { queryText: query ?? '', userId, withExplanations: false, scoreWeights, ...options },
       { supabase, embeddingClient, explanationClient, explanationCache, logger }
     )
 

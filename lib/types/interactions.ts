@@ -49,3 +49,24 @@ export type InteractionInsert = {
   source: InteractionSource
   context?: Record<string, unknown>
 }
+
+// ─── Client → server request (POST /api/interactions) ───────────────────────────
+
+// Only the discovery-surface actions are acceptable from the client. The swipe_* actions are written
+// server-side by onboarding/complete and must never be forgeable from a card tap.
+export const CLIENT_INTERACTION_ACTIONS = [
+  'marked_seen',
+  'dismissed',
+  'not_interested',
+  'loved',
+  'not_for_me',
+] as const
+export type ClientInteractionAction = (typeof CLIENT_INTERACTION_ACTIONS)[number]
+
+export const interactionRequestSchema = z.object({
+  contentId: z.string().uuid(),
+  action: z.enum(CLIENT_INTERACTION_ACTIONS),
+  /** Correlates the action with the recommendation request that surfaced the card (optional). */
+  journeyId: z.string().max(64).optional(),
+})
+export type InteractionRequest = z.infer<typeof interactionRequestSchema>

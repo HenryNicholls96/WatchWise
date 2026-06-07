@@ -203,6 +203,21 @@ describe('recommendation → deferred explanation journey', () => {
     expect((await relaxed.json()).appliedConstraints.excludeGenres).toEqual([])
   })
 
+  it("for-you mode: no query required; returns recommendations stamped with alreadySeen", async () => {
+    const res = await mainReq({ recommendationMode: 'for-you' }) // note: NO query field
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.recommendations.length).toBeGreaterThan(0)
+    // Anonymous (no session) → nothing marked seen.
+    expect(body.recommendations[0]).toHaveProperty('alreadySeen', false)
+    expect(lastRec()).toMatchObject({ event: 'recommendation_request', outcome: 'ok' })
+  })
+
+  it('search mode still requires a query (400 when absent)', async () => {
+    expect((await mainReq({ platformSlugs: ['netflix'] })).status).toBe(400)
+    expect(lastRec()).toMatchObject({ outcome: 'error', errorCode: 'BAD_REQUEST' })
+  })
+
   it('explanations_llm flag off → explanation route skips the LLM and serves deterministic fallbacks', async () => {
     vi.stubEnv('FLAG_EXPLANATIONS_LLM', 'off') // emergency kill switch
     claudeSucceeds() // would be used if the flag were on

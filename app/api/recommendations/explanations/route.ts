@@ -140,7 +140,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     // client supplied no ranking data. Deterministic for a given (query, taste, catalog), so the result
     // set aligns with the grid the main call returned; the client maps explanations back by content id.
     const { recommendations, metrics } = await getRecommendations(
-      { queryText: query, userId, withExplanations: true, recordSession: false, scoreWeights, ...options },
+      { queryText: query, userId, withExplanations: true, recordSession: false, stampAlreadySeen: false, scoreWeights, ...options },
       { supabase, embeddingClient, explanationClient, explanationCache, logger }
     )
 
