@@ -14,6 +14,7 @@ import { ConstraintChips } from '@/components/discovery/ConstraintChips'
 import { ForYouRail } from '@/components/discovery/ForYouRail'
 import { RecommendationCard } from '@/components/discovery/RecommendationCard'
 import { RecommendationSkeletonGrid } from '@/components/discovery/RecommendationSkeleton'
+import { SwipeBackWrapper } from '@/components/discovery/SwipeBackWrapper'
 
 const RESULT_LIMIT = 8
 const EXCLUDE_SEEN_KEY = 'ww:exclude-seen'
@@ -160,35 +161,39 @@ export function DiscoveryView() {
         </div>
       )}
 
-      {mutation.isSuccess &&
-        (mutation.data.recommendations.length === 0 ? (
-          <div className="rounded-lg border bg-muted/30 p-8 text-center">
-            <p className="font-medium">No matches this time</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {searchedExcludeSeen
-                ? 'Nothing new here — try turning off “Exclude seen films”, or rephrase your search.'
-                : 'Try rephrasing, or describe the mood, genre, or a show you loved.'}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              {mutation.data.count} {mutation.data.count === 1 ? 'pick' : 'picks'} for “{searchedQuery}”
-            </p>
-            <ConstraintChips constraints={mutation.data.appliedConstraints} onRelaxGenre={relaxGenre} />
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {mutation.data.recommendations.map((rec) => (
-                <RecommendationCard
-                  key={rec.content.id}
-                  recommendation={rec}
-                  siblings={mutation.data.recommendations}
-                  explanation={explanationsById[rec.content.id]}
-                  explanationLoading={explanationsQuery.isFetching && !explanationsById[rec.content.id]}
-                />
-              ))}
+      {/* Results view: swipe left (or flick) to clear the search and return to the For-You rail. */}
+      {mutation.isSuccess && (
+        <SwipeBackWrapper onSwipeBack={() => mutation.reset()}>
+          {mutation.data.recommendations.length === 0 ? (
+            <div className="rounded-lg border bg-muted/30 p-8 text-center">
+              <p className="font-medium">No matches this time</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {searchedExcludeSeen
+                  ? 'Nothing new here — try turning off “Exclude seen films”, or rephrase your search.'
+                  : 'Try rephrasing, or describe the mood, genre, or a show you loved.'}
+              </p>
             </div>
-          </div>
-        ))}
+          ) : (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">
+                {mutation.data.count} {mutation.data.count === 1 ? 'pick' : 'picks'} for “{searchedQuery}”
+              </p>
+              <ConstraintChips constraints={mutation.data.appliedConstraints} onRelaxGenre={relaxGenre} />
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {mutation.data.recommendations.map((rec) => (
+                  <RecommendationCard
+                    key={rec.content.id}
+                    recommendation={rec}
+                    siblings={mutation.data.recommendations}
+                    explanation={explanationsById[rec.content.id]}
+                    explanationLoading={explanationsQuery.isFetching && !explanationsById[rec.content.id]}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </SwipeBackWrapper>
+      )}
     </div>
   )
 }
