@@ -5,13 +5,21 @@
 // event should appear in Sentry tagged with the current release and environment.
 
 import { NextResponse } from 'next/server'
-import { captureException, isErrorReportingEnabled } from '@/lib/utils/error-reporting'
+import {
+  captureException,
+  initErrorReporting,
+  isErrorReportingEnabled,
+} from '@/lib/utils/error-reporting'
 import { getCurrentRelease } from '@/lib/utils/observability'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(): Promise<NextResponse> {
+  // Ensure this module instance is initialized (idempotent); covers the case where instrumentation ran in a
+  // different bundle than this route handler.
+  await initErrorReporting()
+
   const error = new Error('WatchWise Sentry verification probe — safe to ignore')
   captureException(error, {
     route: 'GET /api/sentry-check',
@@ -23,6 +31,8 @@ export async function GET(): Promise<NextResponse> {
     {
       sentEvent: true,
       reportingEnabled: isErrorReportingEnabled(),
+      dsnPresent: Boolean(process.env.SENTRY_DSN),
+      sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? null,
       release: getCurrentRelease(),
       timestamp: new Date().toISOString(),
     },
