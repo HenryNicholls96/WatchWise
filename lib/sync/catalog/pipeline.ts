@@ -161,6 +161,7 @@ export async function ingestCatalog(opts: IngestOptions, deps: IngestDeps): Prom
     sample.length > 0
       ? await runAudit(sample, {
           thresholds: opts.thresholds,
+          crossSourceSoft: platform.broadcaster ?? false,
           logger,
           requeryConsistent: async (item) => {
             const show = await deps.source.getShow(item.motnId, region)

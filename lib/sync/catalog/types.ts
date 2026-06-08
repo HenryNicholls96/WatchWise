@@ -115,6 +115,8 @@ export type AuditReport = {
   internalConsistency: AuditLayerResult
   deepLinkLiveness: AuditLayerResult
   crossSource: AuditLayerResult
+  /** When true (broadcaster platforms), cross-source is quarantine-only and excluded from the verdict. */
+  crossSourceSoft: boolean
   sampleSize: number
   thresholds: AuditThresholds
   ranAt: string

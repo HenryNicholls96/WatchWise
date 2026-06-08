@@ -51,6 +51,28 @@ describe('runAudit', () => {
     expect(report.internalConsistency.failures).toHaveLength(4)
   })
 
+  it('quarantine-only cross-source (broadcaster): heavy disagreement is reported but does NOT fail', async () => {
+    const report = await runAudit([item(), item({ motnId: '2', tmdbId: 2 }), item({ motnId: '3', tmdbId: 3 }), item({ motnId: '4', tmdbId: 4 })], {
+      crossSourceSoft: true,
+      requeryConsistent: vi.fn().mockResolvedValue(true), // hard gates healthy
+      checkLink: vi.fn().mockResolvedValue(true),
+      crossCheck: vi.fn().mockResolvedValue(false), // 100% disagreement
+    })
+    expect(report.verdict).toBe('pass') // soft → not gated
+    expect(report.crossSourceSoft).toBe(true)
+    expect(report.crossSource.failures).toHaveLength(4) // still flagged for quarantine/report
+  })
+
+  it('soft mode does NOT mask a real hard-gate failure', async () => {
+    const report = await runAudit([item(), item({ motnId: '2' }), item({ motnId: '3' }), item({ motnId: '4' })], {
+      crossSourceSoft: true,
+      requeryConsistent: vi.fn().mockResolvedValue(false), // internal consistency collapses
+      checkLink: vi.fn().mockResolvedValue(true),
+      crossCheck: vi.fn().mockResolvedValue(true),
+    })
+    expect(report.verdict).toBe('fail')
+  })
+
   it('skips cross-source for titles without a tmdbId (no false disagreement)', async () => {
     const report = await runAudit([item({ tmdbId: null })], {
       requeryConsistent: vi.fn().mockResolvedValue(true),

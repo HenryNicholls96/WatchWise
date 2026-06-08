@@ -32,6 +32,12 @@ export type AuditDeps = {
   checkLink: (url: string) => Promise<boolean>
   /** True/false if TMDb providers (GB) agree the title is on the platform; null when not checkable. */
   crossCheck: (item: AuditSampleItem) => Promise<boolean | null>
+  /**
+   * Broadcaster platforms (iPlayer/ITVX/Channel 4 …): cross-source is QUARANTINE-ONLY — still computed
+   * and reported (disagreeing titles flagged), but excluded from the verdict, because third-party
+   * catalogues under-report free-to-air availability. The hard gates (Layers 1 & 2) stay strict.
+   */
+  crossSourceSoft?: boolean
   thresholds?: AuditThresholds
   logger?: Logger
 }
@@ -124,13 +130,17 @@ export async function runAudit(sample: AuditSampleItem[], deps: AuditDeps): Prom
   cross.rate = rate(cross.passed, cross.checked)
   const crossDisagreement = cross.rate == null ? null : 1 - cross.rate
 
-  const verdict = computeVerdict(internal.rate, links.rate, crossDisagreement, thresholds)
+  // Broadcaster platforms: cross-source is quarantine-only — still measured/reported above, but passed as
+  // null here so it never moves the verdict (which then rests on the hard gates: Layers 1 & 2).
+  const crossSourceSoft = deps.crossSourceSoft ?? false
+  const verdict = computeVerdict(internal.rate, links.rate, crossSourceSoft ? null : crossDisagreement, thresholds)
 
   return {
     verdict,
     internalConsistency: internal,
     deepLinkLiveness: links,
     crossSource: cross,
+    crossSourceSoft,
     sampleSize: sample.length,
     thresholds,
     ranAt: new Date().toISOString(),
