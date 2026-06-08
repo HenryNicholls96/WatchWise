@@ -70,6 +70,23 @@ describe('normalizeShow', () => {
     expect(t.type).toBe('series')
   })
 
+  it('keeps a single availability row when the show lists multiple options for the same service', () => {
+    const t = normalizeShow(
+      show({
+        streamingOptions: {
+          gb: [
+            { service: { id: 'iplayer' }, type: 'free', link: 'https://bbc/a' },
+            { service: { id: 'iplayer' }, type: 'free', link: 'https://bbc/b' },
+          ],
+        },
+      }),
+      'iplayer',
+      'gb'
+    )!
+    expect(t.availability).toHaveLength(1)
+    expect(t.availability[0].deepLink).toBe('https://bbc/a')
+  })
+
   it('returns null when the platform has no availability in the region', () => {
     expect(normalizeShow(show({ streamingOptions: { gb: [{ service: { id: 'netflix' }, type: 'subscription' }] } }), 'iplayer', 'gb')).toBeNull()
     expect(normalizeShow(show({ streamingOptions: {} }), 'iplayer', 'gb')).toBeNull()

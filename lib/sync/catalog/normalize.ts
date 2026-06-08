@@ -58,6 +58,9 @@ export function normalizeShow(
   platformSlug: string,
   region: string
 ): IngestedTitle | null {
+  // A show can list MULTIPLE options for the same service in a region (e.g. several episode links). Our
+  // availability model is one row per (platform, region) — and content_platforms is unique on that — so we
+  // keep the FIRST eligible option. (Pushing more than one would trip "ON CONFLICT cannot affect row twice".)
   const options = show.streamingOptions?.[region] ?? []
   const availability: CatalogAvailability[] = []
   for (const opt of options) {
@@ -72,6 +75,7 @@ export function normalizeShow(
       availableFrom: unixToDate(opt.availableSince),
       availableUntil: null, // motn v4 exposes expiresSoon (bool), not a date; refresh catches removals
     })
+    break // one row per platform/region
   }
   if (availability.length === 0) return null
 
