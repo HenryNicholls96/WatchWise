@@ -30,7 +30,9 @@ export type RatingSources = z.infer<typeof ratingSourcesSchema>
  */
 export const contentRowSchema = z.object({
   id: z.string().uuid(),
-  tmdbId: z.number().int(),
+  // Nullable since migration 010: catalogue titles (e.g. BBC iPlayer originals) may have no TMDb id.
+  // Carried only — never used for filtering/scoring — so a null here is harmless downstream.
+  tmdbId: z.number().int().nullable(),
   title: z.string(),
   type: z.enum(CONTENT_TYPES),
   releaseYear: z.number().int().nullable(),

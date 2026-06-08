@@ -33,7 +33,7 @@ const DAILY_CAP = Number(process.env.OMDB_DAILY_CAP ?? 900) // under OMDb free t
 
 type Row = {
   id: string
-  tmdb_id: number
+  tmdb_id: number | null
   type: ContentType
   imdb_id: string | null
   tmdb_rating: number | string | null
@@ -77,9 +77,10 @@ async function main() {
     }
 
     try {
-      // 1) Resolve imdb_id (stored, else TMDb external_ids).
+      // 1) Resolve imdb_id (stored, else TMDb external_ids). Catalogue rows (migration 010) may have no
+      //    tmdb_id; only fall back to the TMDb lookup when one is present.
       let imdbId = row.imdb_id
-      if (!imdbId) imdbId = await tmdb.getImdbId(row.tmdb_id, row.type)
+      if (!imdbId && row.tmdb_id != null) imdbId = await tmdb.getImdbId(row.tmdb_id, row.type)
 
       // 2) OMDb (IMDb + Metacritic) — only if we have an imdb_id.
       let imdbRating: number | null = null
