@@ -19,6 +19,8 @@ export type OmdbRatings = {
   imdbVotes: number | null
   /** Metacritic Metascore on a 0–100 scale, or null. */
   metascore: number | null
+  /** Plot/synopsis text, or null — used to backfill a missing description. */
+  plot: string | null
 }
 
 type OmdbResponse = {
@@ -27,6 +29,7 @@ type OmdbResponse = {
   imdbRating?: string
   imdbVotes?: string
   Metascore?: string
+  Plot?: string
 }
 
 function parseNa(value: string | undefined): string | null {
@@ -69,7 +72,7 @@ export function createOmdbClient(apiKey: string) {
       const url = `${BASE_URL}?apikey=${encodeURIComponent(apiKey)}&i=${encodeURIComponent(imdbId)}`
       const data = await throttledGet(url)
       if (data.Response !== 'True') {
-        return { found: false, imdbRating: null, imdbVotes: null, metascore: null }
+        return { found: false, imdbRating: null, imdbVotes: null, metascore: null, plot: null }
       }
       const imdbRating = parseNumber(data.imdbRating)
       return {
@@ -77,6 +80,7 @@ export function createOmdbClient(apiKey: string) {
         imdbRating: imdbRating != null && imdbRating >= 0 && imdbRating <= 10 ? imdbRating : null,
         imdbVotes: parseNumber(data.imdbVotes),
         metascore: parseNumber(data.Metascore),
+        plot: parseNa(data.Plot),
       }
     },
   }

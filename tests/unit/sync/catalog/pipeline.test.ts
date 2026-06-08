@@ -106,11 +106,12 @@ function makeSource(shows: MotnShow[]): CatalogSource {
 }
 
 describe('ingestCatalog', () => {
-  it('dedupes against an existing TMDb row, ingests a BBC original, and skips low-quality titles', async () => {
+  it('dedupes, ingests a BBC original, rescues a no-synopsis title via TMDb, and skips the unrescuable', async () => {
     const fake = makeFake([{ content_key: 'tmdb:872790', id: 'c-us', tmdb_id: 872790 }]) // pre-existing US row
     const shows = [
       motnShow(), // same tmdbId 872790 → should UPDATE c-us, add iplayer availability (no new row)
       motnShow({ id: '999', title: 'BBC Original', tmdbId: undefined, showType: 'series' }), // motn:999 → new row
+      motnShow({ id: '888', title: 'Rescued by TMDb', tmdbId: 'movie/555', overview: undefined }), // backfilled
       motnShow({ id: '777', title: 'No Synopsis', tmdbId: undefined, overview: undefined }), // skipped: missing_description
     ]
 
@@ -119,19 +120,21 @@ describe('ingestCatalog', () => {
       {
         supabase: fake.client,
         source: makeSource(shows),
+        getTmdbOverview: vi.fn().mockImplementation((id: number) => Promise.resolve(id === 555 ? 'Backfilled synopsis.' : null)),
         tmdbProviders: vi.fn().mockResolvedValue(true),
         checkLink: vi.fn().mockResolvedValue(true),
-        logger: undefined,
       }
     )
 
-    expect(result.written).toBe(2)
-    expect(result.skipped.missing_description).toBe(1)
-    // Dedupe: still exactly two content rows (the pre-existing US one + the BBC original) — no duplicate.
-    expect(fake.content.size).toBe(2)
+    expect(result.written).toBe(3) // dedupe-update + motn:999 + rescued 888
+    expect(result.skipped.missing_description).toBe(1) // only 777 (no synopsis, no ids to enrich from)
+    expect(result.enrichment.rescued).toBe(1)
+    expect(result.enrichment.descriptionSource).toEqual({ motn: 2, tmdb: 1, omdb: 0 })
+    // Dedupe: three content rows (US + BBC original + rescued) — no duplicate of 872790.
+    expect(fake.content.size).toBe(3)
     expect(fake.content.has('tmdb:872790')).toBe(true)
     expect(fake.content.has('motn:999')).toBe(true)
-    // The US row gained an iPlayer/gb availability row.
+    expect(fake.content.has('tmdb:555')).toBe(true)
     expect(fake.contentPlatforms.some((r) => r.content_id === 'c-us' && r.platform_id === 'p-ip' && r.region === 'gb')).toBe(true)
   })
 

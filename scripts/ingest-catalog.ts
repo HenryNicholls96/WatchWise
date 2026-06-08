@@ -15,6 +15,7 @@ import axios from 'axios'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createCatalogSource } from '@/lib/sync/catalog/motn-source'
 import { createOmdbClient } from '@/lib/sync/omdb-client'
+import { createTMDbClient } from '@/lib/sync/tmdb-client'
 import { CATALOG_PLATFORMS, getCatalogPlatform } from '@/lib/sync/catalog/platforms'
 import { ingestCatalog } from '@/lib/sync/catalog/pipeline'
 import type { IngestMode } from '@/lib/sync/catalog/types'
@@ -130,6 +131,7 @@ async function main() {
 
   const source = createCatalogSource(process.env.STREAMING_API_KEY!, process.env.STREAMING_API_BASE_URL!, { logger: consoleLogger })
   const omdb = process.env.OMDB_API_KEY ? createOmdbClient(process.env.OMDB_API_KEY) : null
+  const tmdb = createTMDbClient(process.env.TMDB_API_KEY!)
   const tmdbProviders = makeTmdbProviders(process.env.TMDB_API_KEY!, /bbc\s*iplayer/i)
 
   console.log(`\n━━━ Catalog ingest: ${platform.name} (${platform.slug}/${platform.region}) — mode=${mode} limit=${limit ?? '∞'} ━━━\n`)
@@ -140,6 +142,7 @@ async function main() {
       supabase,
       source,
       getOmdb: omdb ? (id) => omdb.getByImdbId(id) : undefined,
+      getTmdbOverview: (id, type) => tmdb.getOverview(id, type),
       tmdbProviders,
       checkLink,
       logger: consoleLogger,
@@ -149,6 +152,9 @@ async function main() {
   console.log('\n── Result ──')
   console.log(`enumerated: ${result.enumerated} | written: ${result.written} | removed: ${result.removed}`)
   console.log(`skipped: ${JSON.stringify(result.skipped)}`)
+  const e = result.enrichment
+  console.log(`description source → motn: ${e.descriptionSource.motn}, tmdb: ${e.descriptionSource.tmdb}, omdb: ${e.descriptionSource.omdb}`)
+  console.log(`rescued by enrichment (would have been skipped): ${e.rescued}`)
   if (result.audit) {
     const a = result.audit
     const pct = (r: number | null) => (r == null ? 'n/a' : `${Math.round(r * 100)}%`)

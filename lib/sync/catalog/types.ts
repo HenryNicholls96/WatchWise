@@ -138,6 +138,13 @@ export const DEFAULT_AUDIT_THRESHOLDS: AuditThresholds = {
 
 export type IngestMode = 'subset' | 'expand' | 'refresh'
 
+/** Where written titles' descriptions came from + how many were rescued from a skip by enrichment. */
+export type EnrichmentStats = {
+  descriptionSource: { motn: number; tmdb: number; omdb: number }
+  /** Titles that had NO motn synopsis but were backfilled (tmdb/omdb) → would have been skipped otherwise. */
+  rescued: number
+}
+
 export type IngestResult = {
   jobId: string | null
   verdict: AuditVerdict
@@ -145,5 +152,6 @@ export type IngestResult = {
   written: number
   skipped: Partial<Record<CatalogSkipReason, number>>
   removed: number
+  enrichment: EnrichmentStats
   audit: AuditReport | null
 }

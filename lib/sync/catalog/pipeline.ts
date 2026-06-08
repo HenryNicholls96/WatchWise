@@ -47,6 +47,8 @@ export type IngestDeps = {
   getOmdb?: (imdbId: string) => Promise<OmdbRatings>
   /** Cross-source check: does TMDb watch/providers (region) agree the title is on the platform? */
   tmdbProviders?: (tmdbId: number, type: 'movie' | 'series', region: string) => Promise<boolean | null>
+  /** TMDb synopsis lookup (backfills a missing description). */
+  getTmdbOverview?: (tmdbId: number, type: 'movie' | 'series', region?: string) => Promise<string | null>
   /** Deep-link liveness check (reachable? 404/410 = dead). */
   checkLink?: (url: string) => Promise<boolean>
   logger?: Logger
@@ -93,9 +95,16 @@ export async function ingestCatalog(opts: IngestOptions, deps: IngestDeps): Prom
 
   const tagMappings: TagMapping[] = await loadTagMappings(deps.supabase).catch(() => [] as TagMapping[])
   const platformIdBySlug = await loadPlatformIdBySlug(deps.supabase)
-  const enrichDeps: EnrichDeps = { getOmdb: deps.getOmdb, tagMappings, logger }
+  const enrichDeps: EnrichDeps = {
+    getOmdb: deps.getOmdb,
+    getTmdbOverview: deps.getTmdbOverview ? (id, type) => deps.getTmdbOverview!(id, type) : undefined,
+    tagMappings,
+    logger,
+  }
 
   const writtenSample: AuditSampleItem[] = []
+  const descriptionSource = { motn: 0, tmdb: 0, omdb: 0 }
+  let rescued = 0
   let enumerated = 0
   let written = 0
   const limit = opts.limit ?? Infinity
@@ -113,15 +122,20 @@ export async function ingestCatalog(opts: IngestOptions, deps: IngestDeps): Prom
         bump('no_active_availability')
         continue
       }
-      const gate = qualityGate(title)
+      // Enrich BEFORE the quality gate so a missing synopsis can be backfilled (TMDb/OMDb) rather than
+      // causing an automatic skip. enrichTitle resolves the final description + reports its source.
+      const enriched = await enrichTitle(title, enrichDeps)
+      const finalTitle = enriched.description === title.description ? title : { ...title, description: enriched.description }
+      const gate = qualityGate(finalTitle)
       if (!gate.ok) {
         bump(gate.reason)
         continue
       }
-      const enriched = await enrichTitle(title, enrichDeps)
-      const outcome = await upsertTitle(deps.supabase, title, enriched, platformIdBySlug, runAt, { logger })
+      const outcome = await upsertTitle(deps.supabase, finalTitle, enriched, platformIdBySlug, runAt, { logger })
       if (!outcome) continue
       written++
+      if (enriched.descriptionSource !== 'none') descriptionSource[enriched.descriptionSource]++
+      if (enriched.descriptionSource === 'tmdb' || enriched.descriptionSource === 'omdb') rescued++
       writtenSample.push({
         motnId: title.motnId,
         tmdbId: title.tmdbId,
@@ -197,6 +211,7 @@ export async function ingestCatalog(opts: IngestOptions, deps: IngestDeps): Prom
             written,
             removed,
             skipped,
+            enrichment: { descriptionSource, rescued },
             audit,
           },
         })
@@ -206,5 +221,5 @@ export async function ingestCatalog(opts: IngestOptions, deps: IngestDeps): Prom
     }
   }
 
-  return { jobId, verdict, enumerated, written, skipped, removed, audit }
+  return { jobId, verdict, enumerated, written, skipped, removed, enrichment: { descriptionSource, rescued }, audit }
 }

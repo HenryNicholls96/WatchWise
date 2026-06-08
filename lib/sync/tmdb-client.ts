@@ -267,6 +267,20 @@ export function createTMDbClient(apiKey: string) {
     },
 
     /**
+     * Fetches just a title's synopsis from TMDb. Used to backfill a description when the catalogue source
+     * (movieofthenight) has none. Returns null on miss/error (best-effort enrichment, never throws).
+     */
+    async getOverview(tmdbId: number, type: ContentType): Promise<string | null> {
+      try {
+        const path = type === 'movie' ? `/movie/${tmdbId}` : `/tv/${tmdbId}`
+        const data = await get<{ overview?: string }>(path)
+        return data.overview?.trim() || null
+      } catch {
+        return null
+      }
+    },
+
+    /**
      * Fetches full movie details including keywords and credits.
      * Returns null if the title cannot be enriched (missing overview, API error, etc.)
      */
