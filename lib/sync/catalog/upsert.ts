@@ -56,7 +56,12 @@ export async function upsertTitle(
     poster_url: title.posterUrl,
     backdrop_url: title.backdropUrl,
     embedding_input: enriched.embeddingInput,
-    metadata: { source: 'motn', motn_id: title.motnId, motn_rating: title.motnRating },
+    metadata: {
+      source: 'motn',
+      motn_id: title.motnId,
+      motn_rating: title.motnRating,
+      description_source: enriched.descriptionSource, // provenance: motn | tmdb | omdb
+    },
     updated_at: nowIso,
   }
 
